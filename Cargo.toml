@@ -1,0 +1,19 @@
+[package]
+name = "injoint"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8.1", features = ["ws"] }
+quote = "1.0.38"
+syn = "2.0.0"
+tokio = { version = "1.4.0", features = ["rt", "rt-multi-thread", "macros"] }
+tokio-tungstenite = "0.26.1"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.66"
+futures = "0.3.31"
+tungstenite = "0.26.1"
+dashmap = "6.1.0"
+paste = "1.0.0"
+injoint-macros = { path = "./injoint-macros" }
+futures-util = "0.3.31"
