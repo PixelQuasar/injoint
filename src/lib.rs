@@ -1,20 +1,59 @@
-// use tokio::{net::TcpListener, net::TcpStream, sync::mpsc};
-// use tokio_tungstenite::{accept_async, WebSocketStream};
-// use injoint_macros::build_injoint;
-// use paste;
-mod joint;
+pub mod broadcaster;
+pub mod connection;
+pub mod controller;
+pub mod message;
+pub mod reducer;
+pub mod room;
+pub mod store;
+pub mod tcp_handler;
+pub mod utils;
 
-use crate::joint::message::Response;
+
+use std::sync::Arc;
+
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use utils::get_id;
+use crate::message::Response;
 use futures::SinkExt;
 use futures_util::stream::SplitSink;
-use serde::{Deserialize, Serialize};
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc::UnboundedReceiver, Mutex};
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use tungstenite::{client, Utf8Bytes};
+
+#[derive(Serialize, Deserialize, Clone)]
+struct DemoModel {
+    id: usize,
+    name: String,
+}
+
+impl DemoModel {
+    pub fn new(name: String) -> Self {
+        DemoModel { id: get_id(), name }
+    }
+}
+
+type CollectionNameType = String;
+
+type JointQueryName = String;
+
+struct Joint<T> {
+    id: usize,
+    reducers: Arc<DashMap<JointQueryName, Operation<T>>>,
+}
+
+impl<T> Joint<T> {
+    pub async fn new() -> Self {
+        Joint {
+            id: get_id(),
+            reducers: Arc::new(DashMap::new()),
+        }
+    }
+}
+
 // async fn test() {
 //     // let server = TcpListener::bind("0.0.0.0:8080").await.unwrap();
 
@@ -180,7 +219,7 @@ impl MyJoint {
         }
     }
 
-    pub async fn broadcast(&mut self, mut rx: UnboundedReceiver<WebMethods<Actions>>) {
+    pub async fn broadcast<T>(&mut self, mut rx: UnboundedReceiver<WebMethods<Actions>>) -> Result<(), String> {
         // map of all active client connections
         let mut clients: HashMap<u64, Client> = HashMap::<u64, Client>::new();
 
@@ -190,7 +229,7 @@ impl MyJoint {
         let mut current_target_room_id: Option<u64> = None;
 
         while let Some(event) = rx.recv().await {
-            let response: Response = match event {
+            let response: Result<Response<T>, Response<T>> = match event {
                 WebMethods::Create(client) => {
                     let room_id = rooms.len() as u64;
                     let room = Room {
@@ -204,56 +243,62 @@ impl MyJoint {
 
                     current_target_room_id = Some(room_id);
 
-                    Response::room_created(self.state.clone())
+                    Ok(Response::RoomCreated(room_id))
                 }
                 WebMethods::Join(client, room_id, password) => {
-                    if let Some(mut room) = rooms.get_mut(&room_id) {
-                        room.client_ids.insert(client.id);
-                        clients.insert(client.id, client);
+                    let mut room = rooms.get_mut(&room_id).ok_or_else(|| {
+                        Response::NotFound("Room not found".to_string())
+                    })?;
+                    room.client_ids.insert(client.id);
+                    clients.insert(client.id, client);
 
-                        current_target_room_id = Some(room_id);
-                        Response::ok(self.state.clone())
-                    } else {
-                        Response::not_found("Room not found".to_string())
-                    }
+                    current_target_room_id = Some(room_id);
+                    Ok(Response::RoomJoined(room_id))
                 }
                 WebMethods::Action(client_id, action) => {
-                    if let Some(client) = clients.get(&client_id) {
-                        self.dispatch(client_id, action).await;
-
-                        current_target_room_id = client.room_id;
-                        Response::ok(self.state.clone())
-                    } else {
-                        Response::not_found("Client not found".to_string())
-                    }
+                    let client = clients.get(&client_id).ok_or_else(|| {
+                        Err(Response::NotFound("Client not found".to_string()))
+                    })?;
+                    self.dispatch(client_id, action).await;
+                    current_target_room_id = client.room_id;
+                    Ok(Response::Action(self.state.clone()))
                 }
                 WebMethods::Leave(client_id) => {
-                    if let Some(client) = clients.remove(&client_id) {
-                        if let Some(room) = rooms.get_mut(&client.room_id.unwrap()) {
-                            room.client_ids.remove(&client_id);
-                        }
-                        current_target_room_id = client.room_id;
-                        Response::ok(self.state.clone())
-                    } else {
-                        Response::not_found("Client not found".to_string())
-                    }
+                    let client = clients.remove(&client_id).ok_or_else(|| {
+                        Response::NotFound("Client not found".to_string())
+                    })?;
+                    let room_id = client.room_id.ok_or_else(|| {
+                        Response::NotFound("Client not in room".to_string())
+                    })?;
+                    let room = rooms.get_mut(&room_id).ok_or_else(|| {
+                        Response::NotFound("Room not found".to_string())
+                    })?;
+                    room.client_ids.remove(&client_id);
+                    current_target_room_id = Some(room_id);
+                    Ok(Response::RoomLeft(room_id))
                 }
             };
 
-            if let Some(room_id) = current_target_room_id {
-                if let Some(room) = rooms.get(&room_id) {
-                    // broadcast response state to all clients in room
-                    for client_id in room.client_ids.iter() {
-                        if let Some(client) = clients.get_mut(client_id) {
-                            let _ = client
-                                .conn
-                                .send(Message::from(serde_json::to_string(&response).unwrap()))
-                                .await;
-                        }
-                    }
+            let room_id = current_target_room_id.ok_or_else(|| {
+                Response::NotFound("No room selected".to_string())
+            })?;
+
+            let room = rooms.get(&room_id).ok_or_else(|| {
+                Response::NotFound("Room not found".to_string())
+            })?;
+
+            // broadcast response state to all clients in room
+            for client_id in room.client_ids.iter() {
+                if let Some(client) = clients.get_mut(client_id) {
+                    let _ = client
+                        .conn
+                        .send(Message::from(serde_json::to_string(&response).unwrap()))
+                        .await;
                 }
             }
         }
+
+        Ok(())
     }
 }
 
