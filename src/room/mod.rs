@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::joint::utils::WebStateTrait;
+use crate::utils::WebStateTrait;
 
 #[derive(Clone)]
 pub struct Room<T>
