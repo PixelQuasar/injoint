@@ -1,10 +1,10 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::fmt::Debug;
 use Option;
 use serde::ser::SerializeStruct;
-use serde_json::Serializer;
+use serde;
+use crate::Client;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum BroadcastMessageMethod {
@@ -79,58 +79,45 @@ pub enum Response<T> where T : Serialize {
 const RESPONSE_STR: &str = "Response";
 const STATUS_STR: &str = "status";
 const MESSAGE_STR: &str = "message";
-
-impl<T> Serialize for Response<T>
+impl<T> serde::ser::Serialize for Response<T>
 where
-    T: Serialize,
+    T: serde::ser::Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: serde::ser::Serializer,
     {
+        let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
         match self {
             Response::RoomCreated(room_id) => {
-                let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
                 s.serialize_field(STATUS_STR, &ResponseStatus::RoomCreated)?;
-                s.serialize_field(MESSAGE_STR, &room_id.to_string())?;
-                s.end()
+                s.serialize_field(MESSAGE_STR, room_id)?;
             }
             Response::RoomJoined(client_id) => {
-                let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
                 s.serialize_field(STATUS_STR, &ResponseStatus::RoomJoined)?;
-                s.serialize_field(MESSAGE_STR, &client_id.to_string())?;
-                s.end()
+                s.serialize_field(MESSAGE_STR, client_id)?;
             }
             Response::Action(payload) => {
-                let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
                 s.serialize_field(STATUS_STR, &ResponseStatus::Action)?;
-                s.serialize_field(MESSAGE_STR, &serde_json::to_string(payload).unwrap())?;
-                s.end()
+                s.serialize_field(MESSAGE_STR, payload)?;
             }
             Response::RoomLeft(client_id) => {
-                let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
                 s.serialize_field(STATUS_STR, &ResponseStatus::RoomLeft)?;
-                s.serialize_field(MESSAGE_STR, &client_id.to_string())?;
-                s.end()
+                s.serialize_field(MESSAGE_STR, client_id)?;
             }
             Response::ServerError(message) => {
-                let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
                 s.serialize_field(STATUS_STR, &ResponseStatus::ServerError)?;
                 s.serialize_field(MESSAGE_STR, message)?;
-                s.end()
             }
             Response::ClientError(message) => {
-                let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
                 s.serialize_field(STATUS_STR, &ResponseStatus::ClientError)?;
                 s.serialize_field(MESSAGE_STR, message)?;
-                s.end()
             }
             Response::NotFound(message) => {
-                let mut s = serializer.serialize_struct(RESPONSE_STR, 2)?;
                 s.serialize_field(STATUS_STR, &ResponseStatus::NotFound)?;
                 s.serialize_field(MESSAGE_STR, message)?;
-                s.end()
             }
         }
+        s.end()
     }
 }
