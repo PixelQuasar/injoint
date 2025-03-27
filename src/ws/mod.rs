@@ -1,15 +1,14 @@
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::Dispatchable;
-use crate::joint::{AbstractJoint, Joint};
+use crate::joint::AbstractJoint;
 use crate::message::JointMessage;
 use crate::response::Response;
 use async_trait::async_trait;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
-use tokio::io::{self, AsyncReadExt};
+use tokio::io;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
 use tokio_tungstenite::{accept_async, WebSocketStream};
 use tungstenite::{Message, Utf8Bytes};
 
@@ -49,48 +48,29 @@ impl StreamAdapter for WSStream {
     }
 }
 
-pub struct WebsocketJoint<R: Dispatchable + 'static> {
-    joint: Arc<Mutex<AbstractJoint<R, WSSink>>>,
+pub struct WebsocketJoint<R: Dispatchable + Send + 'static> {
+    joint: Arc<AbstractJoint<R, WSSink>>,
     tcp_listener: Option<TcpListener>,
 }
 
-impl<R: Dispatchable + 'static> WebsocketJoint<R> {
+impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
     pub fn new() -> Self {
         WebsocketJoint {
-            joint: Arc::new(Mutex::new(AbstractJoint::new())),
+            joint: Arc::new(AbstractJoint::new()),
             tcp_listener: None,
         }
     }
 
-    pub async fn bind(&mut self, addr: &str) {
+    pub async fn bind_listener(&mut self, listener: TcpListener) {
+        self.tcp_listener = Some(listener);
+    }
+
+    pub async fn bind_addr(&mut self, addr: &str) {
         let tcp_listener = TcpListener::bind(addr).await.unwrap();
         self.tcp_listener = Some(tcp_listener);
     }
 
-    async fn stream_worker(stream: TcpStream, joint: Arc<Mutex<AbstractJoint<R, WSSink>>>)
-    where
-        R: Dispatchable,
-    {
-        let websocket = accept_async(stream).await.unwrap();
-
-        let (sender, receiver) = websocket.split();
-
-        let mut sender_wrapper = WSStream { stream: receiver };
-
-        let sink_wrapper = WSSink { sink: sender };
-
-        let mut joint_guard = joint.lock().await;
-
-        joint_guard
-            .handle_stream(&mut sender_wrapper, sink_wrapper)
-            .await;
-    }
-}
-
-#[async_trait]
-impl<R: Dispatchable + 'static> Joint for WebsocketJoint<R> {
-    // initialize polling loop
-    async fn listen(&mut self) {
+    pub async fn listen(&mut self) {
         loop {
             if let Some(tcp_listener) = &self.tcp_listener {
                 let (stream, _) = tcp_listener.accept().await.unwrap();
@@ -100,5 +80,21 @@ impl<R: Dispatchable + 'static> Joint for WebsocketJoint<R> {
                 panic!("Websocket joint poll error: no listener bound");
             }
         }
+    }
+
+    async fn stream_worker(stream: TcpStream, joint: Arc<AbstractJoint<R, WSSink>>)
+    where
+        R: Dispatchable + Send + 'static,
+    {
+        let websocket = accept_async(stream).await.unwrap();
+        let (sink, stream) = websocket.split();
+
+        let mut sender_wrapper = WSStream { stream };
+
+        let receiver_adapter = WSSink { sink };
+
+        joint
+            .handle_stream(&mut sender_wrapper, receiver_adapter)
+            .await;
     }
 }
