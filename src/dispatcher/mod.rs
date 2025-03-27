@@ -1,7 +1,7 @@
 use crate::utils::types::{Broadcastable, Receivable};
 use std::future::Future;
 
-pub trait Dispatchable: Send + Sync {
+pub trait Dispatchable: Send {
     type Action: Receivable + Send;
     type Response: Broadcastable;
     fn new() -> Self;

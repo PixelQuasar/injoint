@@ -38,17 +38,33 @@ where
     ) -> Result<RoomResponse, ErrorResponse> {
         let client = self
             .clients
-            .get(&client_id)
+            .get_mut(&client_id)
             .ok_or_else(|| ErrorResponse::not_found(client_id, "Client not found".to_string()))?;
 
+        if client.room_id.is_some() {
+            return Err(ErrorResponse::client_error(
+                client_id,
+                "Leave current room before creating new".to_string(),
+            ));
+        }
+
         let room_id = self.rooms.len() as u64;
+
+        let mut room_clients = HashSet::<u64>::new();
+        room_clients.insert(client_id);
+        client.room_id = Some(room_id);
+
         let room = Room {
             id: room_id,
             owner_id: client.id,
-            client_ids: HashSet::<u64>::new(),
+            client_ids: room_clients,
             status: RoomStatus::Public,
         };
+
+        println!("room created: {:#?}", room);
+
         self.rooms.insert(room_id, room);
+
         Ok(RoomResponse::create_room(room_id))
     }
 
@@ -60,8 +76,15 @@ where
     ) -> Result<RoomResponse, ErrorResponse> {
         let client = self
             .clients
-            .get(&client_id)
+            .get_mut(&client_id)
             .ok_or_else(|| ErrorResponse::not_found(client_id, "Client not found".to_string()))?;
+
+        if client.room_id.is_some() {
+            return Err(ErrorResponse::client_error(
+                client_id,
+                "Leave current room before joining new".to_string(),
+            ));
+        }
 
         match self.rooms.get_mut(&room_id) {
             None => Err(ErrorResponse::not_found(
@@ -71,6 +94,7 @@ where
             Some(room) => {
                 let client_id = client.id;
                 room.client_ids.insert(client_id);
+                client.room_id = Some(room.id);
                 Ok(RoomResponse::join_room(room_id, client_id))
             }
         }
@@ -104,7 +128,7 @@ where
     ) -> Result<RoomResponse, ErrorResponse> {
         let client = self
             .clients
-            .get(&client_id)
+            .get_mut(&client_id)
             .ok_or_else(|| ErrorResponse::not_found(client_id, "Client not found".to_string()))?;
 
         let room_id = client.room_id;
@@ -126,6 +150,7 @@ where
         let room = room.unwrap();
 
         room.client_ids.remove(&client.id);
+        client.room_id = None;
         Ok(RoomResponse::leave_room(room_id, client.id))
     }
 
@@ -189,20 +214,30 @@ where
         R: Dispatchable,
         C: StreamAdapter + Unpin,
     {
-        while let Ok(event) = rx.next().await {
-            let response = self.process_event(client_id, event, reducer.clone()).await;
+        while let message = rx.next().await {
+            match message {
+                Ok(event) => {
+                    println!("message from {}: {:#?}", client_id, event);
+                    let response = self.process_event(client_id, event, reducer.clone()).await;
 
-            match response {
-                Ok(room_response) => {
-                    if let Err(e) = self
-                        .react_on_message(room_response.room, room_response.response)
-                        .await
-                    {
-                        eprintln!("Error: {}", e);
+                    println!("resp: {:#?}", response);
+
+                    match response {
+                        Ok(room_response) => {
+                            if let Err(e) = self
+                                .react_on_message(room_response.room, room_response.response)
+                                .await
+                            {
+                                eprintln!("Error: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {:?}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error: {:?}", e);
+                Err(error) => {
+                    eprintln!("ERROR: {}", error);
                 }
             }
         }

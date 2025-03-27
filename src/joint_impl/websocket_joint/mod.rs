@@ -1,6 +1,6 @@
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::Dispatchable;
-use crate::joint::AbstractJoint;
+use crate::joint::{AbstractJoint, Joint};
 use crate::message::JointMessage;
 use crate::response::Response;
 use async_trait::async_trait;
@@ -49,24 +49,22 @@ impl StreamAdapter for WSStream {
     }
 }
 
-pub struct WebsocketJoint<R: Dispatchable + Send + 'static> {
+pub struct WebsocketJoint<R: Dispatchable + 'static> {
     joint: Arc<Mutex<AbstractJoint<R, WSSink>>>,
+    tcp_listener: Option<TcpListener>,
 }
 
-impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
+impl<R: Dispatchable + 'static> WebsocketJoint<R> {
     pub fn new() -> Self {
         WebsocketJoint {
             joint: Arc::new(Mutex::new(AbstractJoint::new())),
+            tcp_listener: None,
         }
     }
 
-    // initialize polling loop
-    pub async fn poll(&mut self, tcp_listener: TcpListener) {
-        loop {
-            let (stream, _) = tcp_listener.accept().await.unwrap();
-
-            tokio::spawn(Self::stream_worker(stream, self.joint.clone()));
-        }
+    pub async fn bind(&mut self, addr: &str) {
+        let tcp_listener = TcpListener::bind(addr).await.unwrap();
+        self.tcp_listener = Some(tcp_listener);
     }
 
     async fn stream_worker(stream: TcpStream, joint: Arc<Mutex<AbstractJoint<R, WSSink>>>)
@@ -89,23 +87,18 @@ impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
     }
 }
 
-async fn create_message_from_stream(stream: &mut TcpStream) -> io::Result<JointMessage> {
-    let mut buffer = vec![0; 1024];
-    let n = stream.read(&mut buffer).await?;
+#[async_trait]
+impl<R: Dispatchable + 'static> Joint for WebsocketJoint<R> {
+    // initialize polling loop
+    async fn listen(&mut self) {
+        loop {
+            if let Some(tcp_listener) = &self.tcp_listener {
+                let (stream, _) = tcp_listener.accept().await.unwrap();
 
-    if n == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "Connection closed",
-        ));
+                tokio::spawn(Self::stream_worker(stream, self.joint.clone()));
+            } else {
+                panic!("Websocket joint poll error: no listener bound");
+            }
+        }
     }
-
-    let client_id = u64::from_be_bytes(buffer[0..8].try_into().unwrap());
-    let content = String::from_utf8_lossy(&buffer[8..n]).to_string();
-    let message = serde_json::from_str(&content).unwrap();
-
-    Ok(JointMessage {
-        client_token: client_id.to_string(),
-        message,
-    })
 }
