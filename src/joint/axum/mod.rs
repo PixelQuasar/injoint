@@ -11,12 +11,9 @@ use axum::routing::get;
 use axum::Router;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{self, AsyncReadExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
-use tokio_tungstenite::{accept_async, WebSocketStream};
+use tokio::io::{self};
+use tokio::net::TcpListener;
 
 struct AxumWSSink {
     sink: SplitSink<WebSocket, Message>,
@@ -55,14 +52,14 @@ impl StreamAdapter for AxumWSStream {
 }
 
 pub struct AxumWSJoint<R: Dispatchable + 'static> {
-    joint: AbstractJoint<R, AxumWSSink>,
+    joint: Arc<AbstractJoint<R, AxumWSSink>>,
     tcp_listener: Option<TcpListener>,
 }
 
 impl<R: Dispatchable + 'static> AxumWSJoint<R> {
     pub fn new() -> Self {
         AxumWSJoint {
-            joint: AbstractJoint::new(),
+            joint: Arc::new(AbstractJoint::new()),
             tcp_listener: None,
         }
     }
@@ -72,19 +69,26 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         self.tcp_listener = Some(tcp_listener);
     }
 
-    // pub async fn handler(&mut self, ws: WebSocketUpgrade) -> impl IntoResponse {
-    //     ws.on_upgrade(|socket| async move {
-    //         let (mut sender, mut receiver) = socket.split();
-    //
-    //         let mut sender_wrapper = AxumWSStream { stream: receiver };
-    //
-    //         let receiver_wrapper = AxumWSSink { sink: sender };
-    //
-    //         let mut joint_guard = self.joint.lock().await;
-    //
-    //         joint_guard
-    //             .handle_stream(&mut sender_wrapper, receiver_wrapper)
-    //             .await;
-    //     })
-    // }
+    pub async fn ws_handler(
+        ws: WebSocketUpgrade,
+        joint: Arc<AbstractJoint<R, AxumWSSink>>,
+    ) -> impl IntoResponse {
+        ws.on_upgrade(|socket| async move {
+            let (mut sender, mut receiver) = socket.split();
+
+            let mut sender_wrapper = AxumWSStream { stream: receiver };
+
+            let receiver_wrapper = AxumWSSink { sink: sender };
+
+            joint
+                .clone()
+                .handle_stream(&mut sender_wrapper, receiver_wrapper)
+                .await;
+        })
+    }
+
+    pub fn attach_router(&self, path: &str, router: Router) -> Router {
+        let joint = self.joint.clone();
+        router.route(path, get(move |ws| AxumWSJoint::ws_handler(ws, joint)))
+    }
 }
