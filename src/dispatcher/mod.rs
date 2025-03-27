@@ -1,10 +1,9 @@
 use crate::utils::types::{Broadcastable, Receivable};
 use std::future::Future;
 
-pub trait Dispatchable: Send {
-    type Action: Receivable + Send;
-    type Response: Broadcastable;
-    fn new() -> Self;
+pub trait Dispatchable: Send + Sync + Default {
+    type Action: Receivable + Send + Sync;
+    type Response: Broadcastable + Send + Sync;
     fn dispatch(
         &mut self,
         client_id: u64,

@@ -7,24 +7,27 @@
  * хэндлинг многопоточки на mpsc каналы
  */
 
-pub mod broadcaster;
+pub mod axum;
+mod broadcaster;
 mod client;
-pub mod connection;
-pub mod controller;
+mod connection;
+mod controller;
 pub mod dispatcher;
-pub mod joint;
-pub mod joint_impl;
-pub mod message;
-pub mod reducer;
+mod joint;
+mod message;
+mod reducer;
 mod response;
-pub mod room;
-pub mod store;
-pub mod tcp_handler;
+mod room;
+mod store;
+mod tcp_handler;
 pub mod utils;
+pub mod ws;
 
+use crate::axum::AxumWSJoint;
 use crate::dispatcher::Dispatchable;
-use crate::joint_impl::websocket_joint::WebsocketJoint;
 use crate::utils::types::{Broadcastable, Receivable};
+use ::axum::routing::get;
+use ::axum::{serve, Router};
 use serde::{Deserialize, Serialize};
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
@@ -192,35 +195,6 @@ impl MyJointReducer {
             }
         }
         Ok(())
-    }
-}
-
-impl Dispatchable for MyJointReducer {
-    type Action = Actions;
-    type Response = DemoState;
-    fn new() -> Self {
-        MyJointReducer {
-            state: DemoState::default(),
-        }
-    }
-
-    async fn dispatch(&mut self, client_id: u64, action: Actions) -> Result<DemoState, String> {
-        match action {
-            Actions::IdentifyUser(name) => {
-                self.action_identify_user(client_id, name).await?;
-            }
-            Actions::SendMessage(content) => {
-                self.action_send_message(client_id, content).await?;
-            }
-            Actions::DeleteMessage(id) => {
-                self.action_delete_message(client_id, id).await?;
-            }
-            Actions::PinMessage(id) => {
-                self.action_pin_message(client_id, id).await?;
-            }
-        }
-
-        Ok(self.state.clone())
     }
 }
 
