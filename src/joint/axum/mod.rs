@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::io::{self};
 use tokio::net::TcpListener;
 
-struct AxumWSSink {
+pub struct AxumWSSink {
     sink: SplitSink<WebSocket, Message>,
 }
 #[async_trait]
@@ -29,7 +29,7 @@ impl SinkAdapter for AxumWSSink {
     }
 }
 
-struct AxumWSStream {
+pub struct AxumWSStream {
     stream: SplitStream<WebSocket>,
 }
 
@@ -74,7 +74,7 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         joint: Arc<AbstractJoint<R, AxumWSSink>>,
     ) -> impl IntoResponse {
         ws.on_upgrade(|socket| async move {
-            let (mut sender, mut receiver) = socket.split();
+            let (sender, receiver) = socket.split();
 
             let mut sender_wrapper = AxumWSStream { stream: receiver };
 
