@@ -110,17 +110,28 @@ where
         reducer: Arc<Mutex<R>>,
     ) -> Result<RoomResponse, ErrorResponse> {
         let mut clients = self.clients.lock().await;
-        if let Some(client) = clients.get(&client_id) {
-            let mut reducer_guard = reducer.lock().await;
-            match reducer_guard.dispatch(client_id, action).await {
-                Ok(state) => Ok(RoomResponse::action(
-                    client.room_id.unwrap(),
-                    serde_json::to_string(&state).unwrap(),
-                )),
-                Err(e) => Err(ErrorResponse::not_found(0, "Client not found".to_string())),
-            }
-        } else {
-            Err(ErrorResponse::not_found(0, "Client not found".to_string()))
+        let client = clients
+            .get_mut(&client_id)
+            .ok_or_else(|| ErrorResponse::not_found(client_id, "Client not found".to_string()))?;
+
+        let mut rooms = self.rooms.lock().await;
+
+        let room_id = client.room_id;
+        if room_id.is_none() {
+            return Err(ErrorResponse::not_found(
+                client.id,
+                "Client not in room".to_string(),
+            ));
+        }
+        let room_id = room_id.unwrap();
+
+        let mut reducer_guard = reducer.lock().await;
+        match reducer_guard.dispatch(client_id, action).await {
+            Ok(state) => Ok(RoomResponse::action(
+                room_id,
+                serde_json::to_string(&state).unwrap(),
+            )),
+            Err(e) => Err(ErrorResponse::not_found(0, "Client not found".to_string())),
         }
     }
 
@@ -195,24 +206,31 @@ where
     }
 
     // broadcasts response state to all clients in room
-    async fn react_on_message(&self, room_id: u64, response: Response) -> Result<(), String> {
+    async fn react_on_message(&self, room_id: u64, response: Response) {
         let rooms = self.rooms.lock().await;
-        let room = rooms.get(&room_id).ok_or("Room not found".to_string())?;
+        let room = rooms.get(&room_id).ok_or("Room not found".to_string());
 
-        // broadcast response state to all clients in room
-        let mut clients = self.clients.lock().await;
-        let mut connections = self.connections.lock().await;
-        for client_id in room.client_ids.iter() {
-            if let Some(client) = clients.get_mut(client_id) {
-                let _ = connections
-                    .get_mut(&client.id)
-                    .unwrap()
-                    .send(response.clone())
-                    .await;
+        if let Ok(room) = room {
+            // broadcast response state to all clients in room
+            let mut clients = self.clients.lock().await;
+            let mut connections = self.connections.lock().await;
+            for client_id in room.client_ids.iter() {
+                if let Some(client) = clients.get_mut(client_id) {
+                    let _ = connections
+                        .get_mut(&client.id)
+                        .unwrap()
+                        .send(response.clone())
+                        .await;
+                }
             }
         }
+    }
 
-        Ok(())
+    async fn react_with_error(&self, client_id: u64, error: Response) {
+        let mut connections = self.connections.lock().await;
+        if let Some(sender) = connections.get_mut(&client_id) {
+            let _ = sender.send(error).await;
+        }
     }
 
     // asynchronously handles WebSocket rx instance
@@ -231,15 +249,12 @@ where
 
                     match response {
                         Ok(room_response) => {
-                            if let Err(e) = self
-                                .react_on_message(room_response.room, room_response.response)
+                            self.react_on_message(room_response.room, room_response.response)
                                 .await
-                            {
-                                eprintln!("Error: {}", e);
-                            }
                         }
-                        Err(e) => {
-                            eprintln!("Error: {:?}", e);
+                        Err(error_response) => {
+                            self.react_with_error(error_response.client, error_response.response)
+                                .await
                         }
                     }
                 }
