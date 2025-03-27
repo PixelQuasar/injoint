@@ -2,6 +2,7 @@ use crate::broadcaster::Broadcaster;
 use crate::client::Client;
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::Dispatchable;
+use async_trait::async_trait;
 use rand::Rng;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -9,8 +10,8 @@ use tokio::sync::Mutex;
 // Root abstract struct that provides all publish-subscribe functionality
 pub struct AbstractJoint<R, Sink>
 where
-    Sink: SinkAdapter + Unpin + Send + Sync,
-    R: Dispatchable + Send + Sync,
+    Sink: SinkAdapter + Unpin,
+    R: Dispatchable + Send,
 {
     broadcaster: Broadcaster<Sink>,
     reducer: Arc<Mutex<R>>,
@@ -18,8 +19,8 @@ where
 
 impl<R, Sink> AbstractJoint<R, Sink>
 where
-    Sink: SinkAdapter + Unpin + Send + Sync,
-    R: Dispatchable + Send + Sync,
+    Sink: SinkAdapter + Unpin,
+    R: Dispatchable + Send,
 {
     pub fn new() -> Self {
         AbstractJoint {
@@ -44,6 +45,7 @@ where
         S: StreamAdapter + Unpin + Send + Sync,
     {
         let new_client_id = rand::rng().random::<u64>();
+        println!("new client: {}", new_client_id);
 
         self.broadcaster.add_client_connection(
             Client::new(new_client_id, None, String::new(), String::new()),
@@ -55,17 +57,11 @@ where
             .await;
 
         self.broadcaster.remove_client_connection(new_client_id);
+        println!("client {} disconnected", new_client_id);
     }
+}
 
-    // pub fn get_client(&self, id: u64) -> Option<&Box<dyn Client<Connection = C>>> {
-    //     self.broadcaster.get_client(id)
-    // }
-    //
-    // pub fn add_client(&mut self, client: Box<dyn Client<Connection = C>>) {
-    //     self.broadcaster.add_client(client);
-    // }
-    //
-    // pub fn remove_client(&mut self, client_id: u64) {
-    //     self.broadcaster.remove_client(client_id);
-    // }
+#[async_trait]
+pub trait Joint {
+    async fn listen(&mut self);
 }

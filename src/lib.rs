@@ -92,6 +92,25 @@ use tokio::net::TcpListener;
 
 // THIS WOULD EXPAND TO SOMETHING LIKE THIS:
 
+struct WebMessage {
+    sender: u64,
+    data: String,
+}
+
+#[derive(Debug)]
+enum RoomStatus {
+    Public,
+    Private(String),
+}
+
+#[derive(Debug)]
+struct Room {
+    pub id: u64,
+    pub owner_id: u64,
+    pub client_ids: HashSet<u64>,
+    pub status: RoomStatus,
+}
+
 #[derive(Serialize, Debug, Clone)]
 struct TextMessage {
     id: u64,
@@ -107,25 +126,9 @@ struct DemoState {
 }
 impl Broadcastable for DemoState {}
 
-struct WebMessage {
-    sender: u64,
-    data: String,
-}
-
-enum RoomStatus {
-    Public,
-    Private(String),
-}
-
-struct Room {
-    pub id: u64,
-    pub owner_id: u64,
-    pub client_ids: HashSet<u64>,
-    pub status: RoomStatus,
-}
-
 // THIS IS AN EXAMPLE OF WHAT JOINT MACRO WOULD GENERATE.
-// AND ALSO MY SANDBOX CURRENTLY.
+// AND ALSO MY SANDBOX CURRENTLY
+
 #[derive(Deserialize, Debug)]
 enum Actions {
     IdentifyUser(String), // client name
@@ -219,15 +222,6 @@ impl Dispatchable for MyJointReducer {
 
         Ok(self.state.clone())
     }
-}
-
-#[tokio::main]
-async fn main() {
-    let server = TcpListener::bind("0.0.0.0:8080").await.unwrap();
-
-    let mut joint = WebsocketJoint::<MyJointReducer>::new();
-
-    joint.poll(server).await;
 }
 
 // TRYING TO WRITE THESE MACROS BELOW
