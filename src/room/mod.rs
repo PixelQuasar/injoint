@@ -1,28 +1,15 @@
-use std::sync::Arc;
+use std::collections::HashSet;
 
-use crate::utils::WebStateTrait;
-
-#[derive(Clone)]
-pub struct Room<T>
-where
-    T: WebStateTrait,
-{
-    id: usize,
-    owner: usize,
-    clients: Vec<usize>,
-    state: Arc<Option<T>>,
+#[derive(Debug)]
+pub enum RoomStatus {
+    Public,
+    Private(String),
 }
 
-impl<T> Room<T>
-where
-    T: WebStateTrait,
-{
-    pub fn new(owner: usize, id: usize, state: Arc<Option<T>>) -> Room<T> {
-        Room {
-            id,
-            owner,
-            clients: vec![],
-            state,
-        }
-    }
+#[derive(Debug)]
+pub struct Room {
+    pub id: u64,
+    pub owner_id: u64,
+    pub client_ids: HashSet<u64>,
+    pub status: RoomStatus,
 }

@@ -3,7 +3,7 @@ use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::Dispatchable;
 use crate::message::{JointMessage, JointMessageMethod};
 use crate::response::{ErrorResponse, Response, RoomResponse};
-use crate::{Room, RoomStatus};
+use crate::room::{Room, RoomStatus};
 use serde_json;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -114,8 +114,6 @@ where
             .get_mut(&client_id)
             .ok_or_else(|| ErrorResponse::not_found(client_id, "Client not found".to_string()))?;
 
-        let mut rooms = self.rooms.lock().await;
-
         let room_id = client.room_id;
         if room_id.is_none() {
             return Err(ErrorResponse::not_found(
@@ -131,7 +129,7 @@ where
                 room_id,
                 serde_json::to_string(&state).unwrap(),
             )),
-            Err(e) => Err(ErrorResponse::not_found(0, "Client not found".to_string())),
+            Err(_) => Err(ErrorResponse::not_found(0, "Client not found".to_string())),
         }
     }
 
@@ -144,8 +142,6 @@ where
         let client = clients
             .get_mut(&client_id)
             .ok_or_else(|| ErrorResponse::not_found(client_id, "Client not found".to_string()))?;
-
-        let mut rooms = self.rooms.lock().await;
 
         let room_id = client.room_id;
         if room_id.is_none() {
@@ -179,7 +175,7 @@ where
         reducer: Arc<Mutex<R>>,
     ) -> Result<RoomResponse, ErrorResponse> {
         // Decouple client lookup from subsequent logic to reduce scope of mutable borrow
-        let mut clients = self.clients.lock().await;
+        let clients = self.clients.lock().await;
         let client_exists = clients.contains_key(&client_id);
         if !client_exists {
             eprintln!("Client {} not found", client_id);
@@ -239,27 +235,20 @@ where
         R: Dispatchable,
         C: StreamAdapter + Unpin,
     {
-        while let message = rx.next().await {
-            match message {
-                Ok(event) => {
-                    println!("message from {}: {:#?}", client_id, event);
-                    let response = self.process_event(client_id, event, reducer.clone()).await;
+        while let Ok(event) = rx.next().await {
+            println!("message from {}: {:#?}", client_id, event);
+            let response = self.process_event(client_id, event, reducer.clone()).await;
 
-                    println!("resp: {:#?}", response);
+            println!("resp: {:#?}", response);
 
-                    match response {
-                        Ok(room_response) => {
-                            self.react_on_message(room_response.room, room_response.response)
-                                .await
-                        }
-                        Err(error_response) => {
-                            self.react_with_error(error_response.client, error_response.response)
-                                .await
-                        }
-                    }
+            match response {
+                Ok(room_response) => {
+                    self.react_on_message(room_response.room, room_response.response)
+                        .await
                 }
-                Err(error) => {
-                    eprintln!("ERROR: {}", error);
+                Err(error_response) => {
+                    self.react_with_error(error_response.client, error_response.response)
+                        .await
                 }
             }
         }

@@ -1,5 +1,6 @@
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use serde_json::Value;
 use std::fmt::Debug;
 
 #[derive(Debug, Serialize)]
@@ -48,7 +49,12 @@ impl serde::ser::Serialize for Response {
             }
             Response::Action(payload) => {
                 s.serialize_field(STATUS_STR, &ResponseStatus::Action)?;
-                s.serialize_field(MESSAGE_STR, payload)?;
+                match serde_json::from_str::<Value>(payload) {
+                    Ok(json_value) => s.serialize_field("message", &json_value)?,
+                    Err(_) => {
+                        s.serialize_field("message", payload)?;
+                    }
+                }
             }
             Response::RoomLeft(client_id) => {
                 s.serialize_field(STATUS_STR, &ResponseStatus::RoomLeft)?;
@@ -78,10 +84,6 @@ pub struct RoomResponse {
 }
 
 impl RoomResponse {
-    pub fn new(room: u64, response: Response) -> Self {
-        RoomResponse { room, response }
-    }
-
     pub fn create_room(room: u64) -> Self {
         RoomResponse {
             room,
@@ -130,10 +132,6 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
-    pub fn new(client: u64, response: Response) -> Self {
-        ErrorResponse { client, response }
-    }
-
     pub fn server_error(client: u64, message: String) -> Self {
         ErrorResponse {
             client,

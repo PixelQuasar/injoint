@@ -1,7 +1,7 @@
 use crate::broadcaster::Broadcaster;
 use crate::client::Client;
 use crate::connection::{SinkAdapter, StreamAdapter};
-use crate::dispatcher::Dispatchable;
+use crate::dispatcher::{ActionResponse, Dispatchable};
 use async_trait::async_trait;
 use rand::Rng;
 use std::sync::Arc;
@@ -37,7 +37,7 @@ where
         &mut self,
         client_id: u64,
         action: R::Action,
-    ) -> Result<R::Response, String> {
+    ) -> Result<ActionResponse<R::Response>, String> {
         let mut reducer = self.reducer.lock().await;
         reducer.dispatch(client_id, action).await
     }
