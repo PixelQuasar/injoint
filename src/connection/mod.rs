@@ -1,11 +1,16 @@
-use futures::stream::SplitSink;
-use tokio::net::TcpStream;
-use tokio_tungstenite::WebSocketStream;
-use tungstenite::Message;
+use crate::message::JointMessage;
+use crate::response::Response;
+use async_trait::async_trait;
 
-#[derive(Debug)]
-pub struct Connection {
-    pub id: usize,
-    pub con: SplitSink<WebSocketStream<TcpStream>, Message>,
+#[async_trait]
+pub trait SinkAdapter {
+    async fn send(
+        &mut self,
+        response: Response,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
+#[async_trait]
+pub trait StreamAdapter {
+    async fn next(&mut self) -> Result<JointMessage, Box<dyn std::error::Error + Send + Sync>>;
+}

@@ -1,27 +1,34 @@
+/* про клонирование стейта на каждом действии:
+ * из-за того что вся многопоточка на мьютексах, нормально мутировать состояние на каждом экшне
+ * не получится, следовательно, взаимодействуем с мьютексом только в диспатчере, а все остальные
+ * мутации придется положить на модель "возвращаем новое состояние вместо мутирования старого"
+ *
+ * как потом можно пофиксить: убрать мьютексы, убрать лишние &mut self и перенести
+ * хэндлинг многопоточки на mpsc каналы
+ */
+
 pub mod broadcaster;
+mod client;
 pub mod connection;
 pub mod controller;
+pub mod dispatcher;
+pub mod joint;
+pub mod joint_impl;
 pub mod message;
 pub mod reducer;
+mod response;
 pub mod room;
 pub mod store;
 pub mod tcp_handler;
 pub mod utils;
-pub mod dispatcher;
-pub mod joint;
 
-use std::sync::Arc;
-
-use futures_util::stream::SplitSink;
+use crate::dispatcher::Dispatchable;
+use crate::joint_impl::websocket_joint::WebsocketJoint;
+use crate::utils::types::{Broadcastable, Receivable};
+use serde::{Deserialize, Serialize};
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
-use serde::Serialize;
-use tokio::net::TcpStream;
-use crate::dispatcher::Dispatchable;
-use crate::joint::Joint;
-use crate::utils::types::Broadcastable;
-use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
-
+use tokio::net::TcpListener;
 // async fn test() {
 //     // let server = TcpListener::bind("0.0.0.0:8080").await.unwrap();
 
@@ -62,7 +69,7 @@ use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 // )
 
 // BUILDING JOINT WITH MACROS EXAMPLE:
-// impl MyJoint {
+// joint_impl MyJoint {
 //     build_joint!(
 //         (
 //             "/route/add_user",
@@ -93,32 +100,16 @@ struct TextMessage {
     pinned: bool,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, Default)]
 struct DemoState {
     messages: Vec<TextMessage>,
     user_names: HashMap<u64, String>,
 }
-
-impl Broadcastable for DemoState {
-    fn new() -> Self {
-        DemoState {
-            messages: Vec::new(),
-            user_names: HashMap::new(),
-        }
-    }
-}
+impl Broadcastable for DemoState {}
 
 struct WebMessage {
     sender: u64,
     data: String,
-}
-
-type Connection = SplitSink<WebSocketStream<TcpStream>, Message>;
-
-struct Client {
-    id: u64,
-    conn: Connection,
-    room_id: Option<u64>,
 }
 
 enum RoomStatus {
@@ -135,33 +126,37 @@ struct Room {
 
 // THIS IS AN EXAMPLE OF WHAT JOINT MACRO WOULD GENERATE.
 // AND ALSO MY SANDBOX CURRENTLY.
+#[derive(Deserialize, Debug)]
 enum Actions {
     IdentifyUser(String), // client name
     SendMessage(String),  // message content
     DeleteMessage(u64),   // message id
     PinMessage(u64),      // message id
 }
+impl Receivable for Actions {}
 
 struct MyJointReducer {
     state: DemoState,
 }
 
 impl MyJointReducer {
-    pub fn new() -> Self {
-        MyJointReducer {
-            state: DemoState::new()
-        }
-    }
-
-    async fn action_impl_identify_user(
-        &mut self, client_id: u64, name: String
-    ) -> Result<DemoState, String> {
+    async fn action_identify_user(
+        &mut self,
+        //state: &mut DemoState,
+        client_id: u64,
+        name: String,
+    ) -> Result<(), String> {
         let mut x = self.state.borrow_mut();
         self.state.user_names.insert(client_id, name);
-        Ok(self.state.clone())
+        Ok(())
     }
 
-    async fn action_send_message(&mut self, client_id: u64, content: String) -> Result<DemoState, String> {
+    async fn action_send_message(
+        &mut self,
+        //state: &mut DemoState,
+        client_id: u64,
+        content: String,
+    ) -> Result<(), String> {
         let message = TextMessage {
             id: 0,
             content,
@@ -169,50 +164,71 @@ impl MyJointReducer {
             pinned: false,
         };
         self.state.messages.push(message);
-        Ok(self.state.clone())
+        Ok(())
     }
 
-    async fn action_delete_message(&mut self, client_id: u64, message_id: u64) -> Result<DemoState, String> {
+    async fn action_delete_message(
+        &mut self,
+        //state: &mut DemoState,
+        client_id: u64,
+        message_id: u64,
+    ) -> Result<(), String> {
         self.state.messages.retain(|msg| msg.id != message_id);
-        Ok(self.state.clone())
+        Ok(())
     }
 
-    async fn action_pin_message(&mut self, client_id: u64, message_id: u64) -> Result<DemoState, String> {
+    async fn action_pin_message(
+        &mut self,
+        //state: &mut DemoState,
+        client_id: u64,
+        message_id: u64,
+    ) -> Result<(), String> {
         for msg in self.state.messages.iter_mut() {
             if msg.id == message_id {
                 msg.pinned = true;
             }
         }
-        Ok(self.state.clone())
+        Ok(())
     }
 }
 
-impl Dispatchable<Actions, DemoState> for MyJointReducer {
+impl Dispatchable for MyJointReducer {
+    type Action = Actions;
+    type Response = DemoState;
     fn new() -> Self {
         MyJointReducer {
-            state: DemoState::new()
+            state: DemoState::default(),
         }
     }
 
     async fn dispatch(&mut self, client_id: u64, action: Actions) -> Result<DemoState, String> {
-        let new_state = match action {
-            Actions::IdentifyUser(name) => self.action_impl_identify_user(client_id, name).await?,
-            Actions::SendMessage(content) => self.action_send_message(client_id, content).await?,
-            Actions::DeleteMessage(id) => self.action_delete_message(client_id, id).await?,
-            Actions::PinMessage(id) => self.action_pin_message(client_id, id).await?,
-        };
-        Ok(new_state)
+        match action {
+            Actions::IdentifyUser(name) => {
+                self.action_identify_user(client_id, name).await?;
+            }
+            Actions::SendMessage(content) => {
+                self.action_send_message(client_id, content).await?;
+            }
+            Actions::DeleteMessage(id) => {
+                self.action_delete_message(client_id, id).await?;
+            }
+            Actions::PinMessage(id) => {
+                self.action_pin_message(client_id, id).await?;
+            }
+        }
+
+        Ok(self.state.clone())
     }
 }
 
+#[tokio::main]
+async fn main() {
+    let server = TcpListener::bind("0.0.0.0:8080").await.unwrap();
 
-fn main () {
-    let mut joint = Joint::<Actions, DemoState, MyJointReducer>::new();
+    let mut joint = WebsocketJoint::<MyJointReducer>::new();
 
+    joint.poll(server).await;
 }
-
-
-
 
 // TRYING TO WRITE THESE MACROS BELOW
 

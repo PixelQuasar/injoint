@@ -1,34 +1,71 @@
 use crate::broadcaster::Broadcaster;
+use crate::client::Client;
+use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::Dispatchable;
-use crate::utils::types::Broadcastable;
-use crate::utils::types::WebMethods;
-use std::cell::RefCell;
-use std::marker::PhantomData;
-use std::rc::Rc;
-use tokio::sync::mpsc::UnboundedReceiver;
+use rand::Rng;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-pub struct Joint<A, T: Broadcastable, R: Dispatchable<A, T>> {
-    broadcaster: Broadcaster,
-    reducer: Rc<RefCell<R>>,
-    phantom_a: PhantomData<A>,
-    phantom_t: PhantomData<T>
+// Root abstract struct that provides all publish-subscribe functionality
+pub struct AbstractJoint<R, Sink>
+where
+    Sink: SinkAdapter + Unpin + Send + Sync,
+    R: Dispatchable + Send + Sync,
+{
+    broadcaster: Broadcaster<Sink>,
+    reducer: Arc<Mutex<R>>,
 }
 
-impl<A, T: Broadcastable, R: Dispatchable<A, T>> Joint<A, T, R> {
-    pub async fn new() -> Self {
-        Joint {
+impl<R, Sink> AbstractJoint<R, Sink>
+where
+    Sink: SinkAdapter + Unpin + Send + Sync,
+    R: Dispatchable + Send + Sync,
+{
+    pub fn new() -> Self {
+        AbstractJoint {
             broadcaster: Broadcaster::new(),
-            reducer: Rc::new(RefCell::new(R::new())),
-            phantom_a: PhantomData,
-            phantom_t: PhantomData
+            reducer: Arc::new(Mutex::new(R::new())),
         }
     }
 
-    pub async fn dispatch(&mut self, client_id: u64, action: A) -> Result<T, String> {
-        self.reducer.borrow_mut().dispatch(client_id, action).await
+    // Dispatches developer-defined action (performed by user) to joint reducer
+    pub async fn dispatch(
+        &mut self,
+        client_id: u64,
+        action: R::Action,
+    ) -> Result<R::Response, String> {
+        let mut reducer_guard = self.reducer.lock().await;
+        reducer_guard.dispatch(client_id, action).await
     }
 
-    pub async fn handle_rx(&mut self, rx: UnboundedReceiver<WebMethods<A>>) {
-        self.broadcaster.handle_rx(rx, self.reducer.clone()).await;
+    // handles new abstract split sink
+    pub async fn handle_stream<S>(&mut self, receiver: &mut S, sender: Sink)
+    where
+        S: StreamAdapter + Unpin + Send + Sync,
+    {
+        let new_client_id = rand::rng().random::<u64>();
+
+        self.broadcaster.add_client_connection(
+            Client::new(new_client_id, None, String::new(), String::new()),
+            sender,
+        );
+
+        self.broadcaster
+            .handle_rx(new_client_id, receiver, self.reducer.clone())
+            .await;
+
+        self.broadcaster.remove_client_connection(new_client_id);
     }
+
+    // pub fn get_client(&self, id: u64) -> Option<&Box<dyn Client<Connection = C>>> {
+    //     self.broadcaster.get_client(id)
+    // }
+    //
+    // pub fn add_client(&mut self, client: Box<dyn Client<Connection = C>>) {
+    //     self.broadcaster.add_client(client);
+    // }
+    //
+    // pub fn remove_client(&mut self, client_id: u64) {
+    //     self.broadcaster.remove_client(client_id);
+    // }
 }
