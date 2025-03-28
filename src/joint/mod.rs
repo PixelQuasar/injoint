@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub mod axum;
+pub mod mpsc;
 pub mod ws;
 
 // Root abstract struct that provides all publish-subscribe functionality
@@ -34,7 +35,7 @@ where
 
     // Dispatches developer-defined action (performed by user) to joint reducer
     pub async fn dispatch(
-        &mut self,
+        &self,
         client_id: u64,
         action: R::Action,
     ) -> Result<ActionResponse<R::Response>, String> {
@@ -66,9 +67,4 @@ where
             .await;
         println!("client {} disconnected", new_client_id);
     }
-}
-
-#[async_trait]
-pub trait Joint {
-    async fn listen(&mut self);
 }
