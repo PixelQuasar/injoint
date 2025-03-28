@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::fmt::Debug;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type", content = "data")]
 pub enum JointMessageMethod {
     Create,
@@ -10,7 +10,7 @@ pub enum JointMessageMethod {
     Action(String), // maybe this should be a generic type that deserializable?
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct JointMessage {
     pub message: JointMessageMethod,
     pub client_token: String,
