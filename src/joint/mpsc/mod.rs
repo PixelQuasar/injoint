@@ -69,7 +69,7 @@ impl<R: Dispatchable + Send + 'static> MPSCJoint<R> {
         (msg_tx, resp_rx)
     }
 
-    async fn dispatch(
+    pub async fn dispatch(
         &self,
         client_id: u64,
         action: R::Action,
