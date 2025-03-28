@@ -1,6 +1,7 @@
+mod test;
+
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::{ActionResponse, Dispatchable};
-use crate::joint::ws::WebsocketJoint;
 use crate::joint::AbstractJoint;
 use crate::message::JointMessage;
 use crate::response::Response;
@@ -15,7 +16,6 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{self};
 use tokio::net::TcpListener;
