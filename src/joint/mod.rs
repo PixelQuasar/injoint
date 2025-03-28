@@ -2,7 +2,6 @@ use crate::broadcaster::Broadcaster;
 use crate::client::Client;
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::{ActionResponse, Dispatchable};
-use async_trait::async_trait;
 use rand::Rng;
 use std::sync::Arc;
 use tokio::sync::Mutex;

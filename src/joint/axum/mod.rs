@@ -5,7 +5,6 @@ use crate::dispatcher::{ActionResponse, Dispatchable};
 use crate::joint::AbstractJoint;
 use crate::message::JointMessage;
 use crate::response::Response;
-use crate::utils::types::{Broadcastable, Receivable};
 use async_trait::async_trait;
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use axum::extract::WebSocketUpgrade;
@@ -14,8 +13,6 @@ use axum::routing::get;
 use axum::Router;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use rand::Rng;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::io::{self};
 use tokio::net::TcpListener;
@@ -97,7 +94,7 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         router.route(path, get(move |ws| AxumWSJoint::ws_handler(ws, joint)))
     }
 
-    async fn dispatch(
+    pub async fn dispatch(
         &self,
         client_id: u64,
         action: R::Action,

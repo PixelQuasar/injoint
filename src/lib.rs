@@ -19,6 +19,10 @@ mod room;
 mod store;
 pub mod utils;
 
+pub mod macros {
+    pub use injoint_macros::*;
+}
+
 // async fn test() {
 //     // let server = TcpListener::bind("0.0.0.0:8080").await.unwrap();
 

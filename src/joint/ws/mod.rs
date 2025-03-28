@@ -5,12 +5,9 @@ use crate::dispatcher::{ActionResponse, Dispatchable};
 use crate::joint::AbstractJoint;
 use crate::message::JointMessage;
 use crate::response::Response;
-use crate::utils::types::{Broadcastable, Receivable};
 use async_trait::async_trait;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use rand::Rng;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::io;
 use tokio::net::{TcpListener, TcpStream};
@@ -104,7 +101,7 @@ impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
             .await;
     }
 
-    async fn dispatch(
+    pub async fn dispatch(
         &self,
         client_id: u64,
         action: R::Action,
