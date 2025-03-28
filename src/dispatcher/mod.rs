@@ -5,6 +5,7 @@ use std::future::Future;
 #[derive(Serialize)]
 pub struct ActionResponse<S: Serialize> {
     pub state: S,
+    pub author: u64,
     pub data: String,
 }
 

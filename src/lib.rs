@@ -10,7 +10,6 @@
 mod broadcaster;
 mod client;
 mod connection;
-mod controller;
 pub mod dispatcher;
 pub mod joint;
 mod message;
