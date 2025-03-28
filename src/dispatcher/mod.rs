@@ -1,8 +1,8 @@
 use crate::utils::types::{Broadcastable, Receivable};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::future::Future;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ActionResponse<S: Serialize> {
     pub state: S,
     pub author: u64,
