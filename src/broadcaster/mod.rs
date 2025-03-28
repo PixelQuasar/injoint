@@ -1,3 +1,5 @@
+mod test;
+
 use crate::client::Client;
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::Dispatchable;
@@ -267,5 +269,17 @@ where
         clients.remove(&client_id);
         let mut connections = self.connections.lock().await;
         connections.remove(&client_id);
+    }
+
+    pub fn get_clients(&self) -> Arc<Mutex<HashMap<u64, Client>>> {
+        self.clients.clone()
+    }
+
+    pub fn get_rooms(&self) -> Arc<Mutex<HashMap<u64, Room>>> {
+        self.rooms.clone()
+    }
+
+    pub fn get_connections(&self) -> Arc<Mutex<HashMap<u64, S>>> {
+        self.connections.clone()
     }
 }

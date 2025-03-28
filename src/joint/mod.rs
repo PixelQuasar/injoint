@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 pub mod axum;
 pub mod mpsc;
+mod test;
 pub mod ws;
 
 // Root abstract struct that provides all publish-subscribe functionality

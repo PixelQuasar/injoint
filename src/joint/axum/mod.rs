@@ -1,3 +1,5 @@
+mod test;
+
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::{ActionResponse, Dispatchable};
 use crate::joint::AbstractJoint;
