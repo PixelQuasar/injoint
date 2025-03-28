@@ -53,6 +53,8 @@ pub fn build_injoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn reducer_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input: ItemStruct = parse_macro_input!(item);
 
+    let reducer_name = input.ident;
+
     let args: Vec<Ident> =
         parse_macro_input!(attr with Punctuated::<Ident, Token![,]>::parse_terminated)
             .into_iter()
@@ -61,8 +63,12 @@ pub fn reducer_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
     let state_struct = args[0].clone();
 
     let expanded = quote! {
+        impl Broadcastable for #state_struct {}
+
         #[derive(Default)]
-        #input
+        struct #reducer_name {
+            state: #state_struct,
+        }
     };
 
     TokenStream::from(expanded)
