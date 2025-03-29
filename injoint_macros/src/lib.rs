@@ -3,76 +3,12 @@ use crate::utils::snake_to_camel;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::punctuated::Punctuated;
-use syn::Type::Path;
 use syn::{
-    parse_macro_input, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, ItemStruct, PatType,
-    Signature, Token, Type,
+    parse_macro_input, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, PatType, Signature, Token,
+    Type,
 };
 
 mod utils;
-
-#[proc_macro_attribute]
-pub fn build_injoint(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input: ItemStruct = parse_macro_input!(item);
-
-    let args: Vec<Ident> =
-        parse_macro_input!(attr with Punctuated::<Ident, Token![,]>::parse_terminated)
-            .into_iter()
-            .collect();
-
-    let mut strs: Vec<String> = Vec::new();
-
-    for arg in args.iter() {
-        strs.push(arg.to_string());
-    }
-
-    let struct_name = &input.ident;
-    let fields = &input.fields;
-
-    let reducers: Vec<_> = strs
-        .iter()
-        .map(|method| {
-            let ident = Ident::new(method, input.ident.span());
-            quote! {
-                #ident: i32,
-            }
-        })
-        .collect();
-
-    let expanded = quote! {
-        struct #struct_name {
-            #fields
-            #(#reducers)*
-        }
-    };
-
-    TokenStream::from(expanded)
-}
-
-#[proc_macro_attribute]
-pub fn reducer_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input: ItemStruct = parse_macro_input!(item);
-
-    let reducer_name = input.ident;
-
-    let args: Vec<Ident> =
-        parse_macro_input!(attr with Punctuated::<Ident, Token![,]>::parse_terminated)
-            .into_iter()
-            .collect();
-
-    let state_struct = args[0].clone();
-
-    let expanded = quote! {
-        impl Broadcastable for #state_struct {}
-
-        #[derive(Default)]
-        struct #reducer_name {
-            state: #state_struct,
-        }
-    };
-
-    TokenStream::from(expanded)
-}
 
 #[proc_macro_attribute]
 pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -149,11 +85,9 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
     let actions = methods
         .clone()
         .iter()
-        .enumerate()
-        .map(|(i, &ref method)| {
-            let span = method.sig.ident.clone().span();
+        .map(|&ref method| {
             let name = parse_action_name(&method.sig);
-            let mut args = parse_action_arg_types(&method.sig);
+            let args = parse_action_arg_types(&method.sig);
 
             let expanded = quote! {
                 #name(#(#args),*)

@@ -7,6 +7,6 @@ mod message;
 mod response;
 mod room;
 pub mod utils;
-pub mod macros {
+pub mod codegen {
     pub use injoint_macros::*;
 }
