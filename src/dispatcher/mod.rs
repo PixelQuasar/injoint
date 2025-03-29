@@ -17,4 +17,10 @@ pub trait Dispatchable: Send + Default {
         client_id: u64,
         action: Self::Action,
     ) -> impl Future<Output = Result<ActionResponse<Self::Response>, String>> + Send;
+
+    fn extern_dispatch(
+        &mut self,
+        client_id: u64,
+        action: &str,
+    ) -> impl Future<Output = Result<ActionResponse<Self::Response>, String>> + Send;
 }
