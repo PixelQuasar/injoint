@@ -148,6 +148,15 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
                     data: msg,
                 })
             }
+
+            async fn extern_dispatch(
+                &mut self,
+                client_id: u64,
+                action: &str,
+            ) -> Result<ActionResponse<#state_struct>, String> {
+                let action: #enum_name = serde_json::from_str(action).unwrap();
+                self.dispatch(client_id, action).await
+            }
         }
     };
 

@@ -26,10 +26,10 @@ where
     Sink: SinkAdapter + Unpin,
     R: Dispatchable + Send,
 {
-    pub fn new() -> Self {
+    pub fn new(default_reducer: R) -> Self {
         AbstractJoint {
             broadcaster: Broadcaster::new(),
-            reducer: Arc::new(Mutex::new(R::default())),
+            reducer: Arc::new(Mutex::new(default_reducer)),
         }
     }
 
@@ -37,10 +37,10 @@ where
     pub async fn dispatch(
         &self,
         client_id: u64,
-        action: R::Action,
+        action: &str,
     ) -> Result<ActionResponse<R::Response>, String> {
         let mut reducer = self.reducer.lock().await;
-        reducer.dispatch(client_id, action).await
+        reducer.extern_dispatch(client_id, action).await
     }
 
     // handles new abstract split sink

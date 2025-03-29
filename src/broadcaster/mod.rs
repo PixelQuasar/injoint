@@ -264,4 +264,19 @@ where
         let mut connections = self.connections.lock().await;
         connections.remove(&client_id);
     }
+
+    #[allow(dead_code)] // getter is used in tests
+    pub(crate) fn get_clients(&self) -> Arc<Mutex<HashMap<u64, Client>>> {
+        self.clients.clone()
+    }
+
+    #[allow(dead_code)] // getter is used in tests
+    pub(crate) fn get_rooms(&self) -> Arc<Mutex<HashMap<u64, Room>>> {
+        self.rooms.clone()
+    }
+
+    #[allow(dead_code)] // getter is used in tests
+    pub(crate) fn get_connections(&self) -> Arc<Mutex<HashMap<u64, S>>> {
+        self.connections.clone()
+    }
 }

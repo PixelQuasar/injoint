@@ -78,6 +78,15 @@ mod mpsc_joint_tests {
                 }
             }
         }
+
+        async fn extern_dispatch(
+            &mut self,
+            client_id: u64,
+            action: &str,
+        ) -> Result<ActionResponse<GameState>, String> {
+            let action: GameAction = serde_json::from_str(action).map_err(|e| e.to_string())?;
+            self.dispatch(client_id, action).await
+        }
     }
 
     // Helper functions for creating and handling messages
@@ -121,7 +130,7 @@ mod mpsc_joint_tests {
     #[tokio::test]
     async fn test_complete_client_flow() {
         // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new();
+        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
 
         // STEP 1: CONNECT
         let (tx, mut rx) = joint.connect(10);
@@ -204,7 +213,7 @@ mod mpsc_joint_tests {
     #[tokio::test]
     async fn test_multiple_clients_room_interaction() {
         // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new();
+        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
 
         // Connect client 1
         let (tx1, mut rx1) = joint.connect(10);
@@ -335,7 +344,7 @@ mod mpsc_joint_tests {
     #[tokio::test]
     async fn test_room_error_handling() {
         // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new();
+        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
 
         // Connect a client
         let (tx, mut rx) = joint.connect(10);
@@ -399,7 +408,7 @@ mod mpsc_joint_tests {
     #[tokio::test]
     async fn test_room_reconnection() {
         // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new();
+        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
 
         // Connect first client
         let (tx1, mut rx1) = joint.connect(10);
