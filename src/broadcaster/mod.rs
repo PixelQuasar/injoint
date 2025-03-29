@@ -64,8 +64,6 @@ where
             status: RoomStatus::Public,
         };
 
-        println!("room created: {:#?}", room);
-
         rooms.insert(room_id, room);
 
         Ok(RoomResponse::create_room(room_id))
@@ -180,7 +178,6 @@ where
         let clients = self.clients.lock().await;
         let client_exists = clients.contains_key(&client_id);
         if !client_exists {
-            eprintln!("Client {} not found", client_id);
             return Err(ErrorResponse::not_found(
                 client_id,
                 "Client not found".to_string(),
@@ -238,10 +235,7 @@ where
         C: StreamAdapter + Unpin,
     {
         while let Ok(event) = rx.next().await {
-            println!("message from {}: {:#?}", client_id, event);
             let response = self.process_event(client_id, event, reducer.clone()).await;
-
-            println!("resp: {:#?}", response);
 
             match response {
                 Ok(room_response) => {
