@@ -12,69 +12,6 @@ use syn::{
 mod utils;
 
 #[proc_macro_attribute]
-pub fn build_injoint(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input: ItemStruct = parse_macro_input!(item);
-
-    let args: Vec<Ident> =
-        parse_macro_input!(attr with Punctuated::<Ident, Token![,]>::parse_terminated)
-            .into_iter()
-            .collect();
-
-    let mut strs: Vec<String> = Vec::new();
-
-    for arg in args.iter() {
-        strs.push(arg.to_string());
-    }
-
-    let struct_name = &input.ident;
-    let fields = &input.fields;
-
-    let reducers: Vec<_> = strs
-        .iter()
-        .map(|method| {
-            let ident = Ident::new(method, input.ident.span());
-            quote! {
-                #ident: i32,
-            }
-        })
-        .collect();
-
-    let expanded = quote! {
-        struct #struct_name {
-            #fields
-            #(#reducers)*
-        }
-    };
-
-    TokenStream::from(expanded)
-}
-
-#[proc_macro_attribute]
-pub fn reducer_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input: ItemStruct = parse_macro_input!(item);
-
-    let reducer_name = input.ident;
-
-    let args: Vec<Ident> =
-        parse_macro_input!(attr with Punctuated::<Ident, Token![,]>::parse_terminated)
-            .into_iter()
-            .collect();
-
-    let state_struct = args[0].clone();
-
-    let expanded = quote! {
-        impl Broadcastable for #state_struct {}
-
-        #[derive(Default)]
-        struct #reducer_name {
-            state: #state_struct,
-        }
-    };
-
-    TokenStream::from(expanded)
-}
-
-#[proc_macro_attribute]
 pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input: ItemImpl = parse_macro_input!(item);
 
