@@ -1,21 +1,21 @@
 [package]
 name = "injoint"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
+description = "Injoint is a library for creating publish-subscribe APIs in minimalistic declarative way"
+repository = "https://github.com/PixelQuasar/injoint"
+license = "MIT"
+readme = "README.md"
+keywords = ["injoint", "pubsub", "api", "websocket", "rust", "tokio", "axum", "serde", "json", "async", "await", "futures", "tungstenite"]
 
 [dependencies]
-axum = { version = "0.8.1", features = ["ws"] }
-quote = "1.0.38"
-syn = "2.0.0"
 tokio = { version = "1.4.0", features = ["full"] }
 tokio-tungstenite = "0.26.1"
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.66"
 futures = "0.3.31"
 tungstenite = "0.26.1"
-dashmap = "6.1.0"
-paste = "1.0.0"
-injoint-macros = { path = "injoint_macros" }
 futures-util = "0.3.31"
 rand = "0.9.0"
 async-trait = "0.1.88"
+axum = { version = "0.8.1", features = ["ws"] }

@@ -49,7 +49,6 @@ where
         S: StreamAdapter + Unpin + Send + Sync,
     {
         let new_client_id = rand::rng().random::<u64>();
-        println!("new client: {}", new_client_id);
 
         self.broadcaster
             .add_client_connection(
@@ -65,6 +64,5 @@ where
         self.broadcaster
             .remove_client_connection(new_client_id)
             .await;
-        println!("client {} disconnected", new_client_id);
     }
 }
