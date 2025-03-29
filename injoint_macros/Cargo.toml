@@ -2,6 +2,10 @@
 name = "injoint-macros"
 version = "0.0.1"
 edition = "2021"
+description = "injoint-macros is helper library for injoint to generate reducer and action boilerplate code"
+repository = "https://github.com/PixelQuasar/injoint"
+license = "MIT"
+readme = "README.md"
 
 [lib]
 proc-macro = true

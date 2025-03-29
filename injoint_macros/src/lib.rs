@@ -3,10 +3,9 @@ use crate::utils::snake_to_camel;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::punctuated::Punctuated;
-use syn::Type::Path;
 use syn::{
-    parse_macro_input, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, ItemStruct, PatType,
-    Signature, Token, Type,
+    parse_macro_input, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, PatType, Signature, Token,
+    Type,
 };
 
 mod utils;
@@ -86,11 +85,9 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
     let actions = methods
         .clone()
         .iter()
-        .enumerate()
-        .map(|(i, &ref method)| {
-            let span = method.sig.ident.clone().span();
+        .map(|&ref method| {
             let name = parse_action_name(&method.sig);
-            let mut args = parse_action_arg_types(&method.sig);
+            let args = parse_action_arg_types(&method.sig);
 
             let expanded = quote! {
                 #name(#(#args),*)
