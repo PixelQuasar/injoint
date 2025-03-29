@@ -19,3 +19,4 @@ futures-util = "0.3.31"
 rand = "0.9.0"
 async-trait = "0.1.88"
 axum = { version = "0.8.1", features = ["ws"] }
+injoint-macros = { path = "injoint_macros", version = "0.0.1" }
