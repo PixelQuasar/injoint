@@ -6,7 +6,7 @@ description = "Injoint is a library for creating publish-subscribe APIs in minim
 repository = "https://github.com/PixelQuasar/injoint"
 license = "MIT"
 readme = "README.md"
-keywords = ["injoint", "pubsub", "api", "websocket", "rust", "tokio", "axum", "serde", "json", "async", "await", "futures", "tungstenite"]
+keywords = ["injoint", "pubsub", "websocket", "axum"]
 
 [dependencies]
 tokio = { version = "1.4.0", features = ["full"] }
