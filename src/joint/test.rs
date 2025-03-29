@@ -105,12 +105,21 @@ mod abstract_joint_tests {
                 }
             }
         }
+
+        async fn extern_dispatch(
+            &mut self,
+            client_id: u64,
+            action: &str,
+        ) -> Result<ActionResponse<TestState>, String> {
+            let action: TestAction = serde_json::from_str(action).map_err(|e| e.to_string())?;
+            self.dispatch(client_id, action).await
+        }
     }
 
     #[tokio::test]
     async fn test_joint_initialization() {
         // Simply test that the joint can be created without errors
-        let joint = AbstractJoint::<TestReducer, MockSink>::new();
+        let joint = AbstractJoint::<TestReducer, MockSink>::new(TestReducer::default());
 
         // Verify the reducer is initialized with default state
         let reducer = joint.reducer.lock().await;
@@ -121,10 +130,10 @@ mod abstract_joint_tests {
     #[tokio::test]
     async fn test_joint_dispatch() {
         // Create a joint
-        let joint = AbstractJoint::<TestReducer, MockSink>::new();
+        let joint = AbstractJoint::<TestReducer, MockSink>::new(TestReducer::default());
 
         // Dispatch an Add action
-        let result = joint.dispatch(1, TestAction::Add(42)).await;
+        let result = joint.dispatch(1, "{\"Add\":42}").await;
 
         // Verify the action was processed successfully
         assert!(result.is_ok());
@@ -134,9 +143,7 @@ mod abstract_joint_tests {
         assert_eq!(response.data, "Added 42");
 
         // Dispatch an Echo action
-        let result = joint
-            .dispatch(2, TestAction::Echo("Hello Joint".to_string()))
-            .await;
+        let result = joint.dispatch(2, "{\"Echo\":\"Hello Joint\"}").await;
 
         // Verify the action was processed successfully
         assert!(result.is_ok());
@@ -152,7 +159,9 @@ mod abstract_joint_tests {
     async fn test_handle_stream() {
         // This test will focus on the client lifecycle management
         // Create a joint
-        let joint = Arc::new(AbstractJoint::<TestReducer, MockSink>::new());
+        let joint = Arc::new(AbstractJoint::<TestReducer, MockSink>::new(
+            TestReducer::default(),
+        ));
 
         // Create a mock stream with room creation and action messages
         let create_message = JointMessage {
@@ -200,7 +209,7 @@ mod abstract_joint_tests {
     #[tokio::test]
     async fn test_client_lifecycle() {
         // This test verifies that clients are added and removed properly
-        let joint = AbstractJoint::<TestReducer, MockSink>::new();
+        let joint = AbstractJoint::<TestReducer, MockSink>::new(TestReducer::default());
 
         // Create an empty stream that will immediately return an error
         let mut stream = MockStream {
@@ -229,7 +238,7 @@ mod abstract_joint_tests {
     #[tokio::test]
     async fn test_integration_with_broadcaster() {
         // This test verifies the integration between the Joint and Broadcaster
-        let joint = AbstractJoint::<TestReducer, MockSink>::new();
+        let joint = AbstractJoint::<TestReducer, MockSink>::new(TestReducer::default());
 
         // Get a reference to the broadcaster
         let broadcaster = &joint.broadcaster;
@@ -253,7 +262,7 @@ mod abstract_joint_tests {
         assert_eq!(broadcaster.get_clients().lock().await.len(), 1);
 
         // Dispatch action through the joint to verify the integration
-        let result = joint.dispatch(client_id, TestAction::Add(5)).await;
+        let result = joint.dispatch(client_id, "{\"Add\":5}").await;
         assert!(result.is_ok());
 
         // Clean up

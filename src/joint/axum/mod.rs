@@ -59,9 +59,9 @@ pub struct AxumWSJoint<R: Dispatchable + 'static> {
 }
 
 impl<R: Dispatchable + 'static> AxumWSJoint<R> {
-    pub fn new() -> Self {
+    pub fn new(default_reducer: R) -> Self {
         AxumWSJoint {
-            joint: Arc::new(AbstractJoint::new()),
+            joint: Arc::new(AbstractJoint::new(default_reducer)),
             tcp_listener: None,
         }
     }
@@ -97,7 +97,7 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
     pub async fn dispatch(
         &self,
         client_id: u64,
-        action: R::Action,
+        action: &str,
     ) -> Result<ActionResponse<R::Response>, String> {
         self.joint.dispatch(client_id, action).await
     }

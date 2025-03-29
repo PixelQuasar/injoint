@@ -47,9 +47,9 @@ pub struct MPSCJoint<R: Dispatchable + Send + 'static> {
 }
 
 impl<R: Dispatchable + Send + 'static> MPSCJoint<R> {
-    pub fn new() -> Self {
+    pub fn new(default_reducer: R) -> Self {
         MPSCJoint {
-            joint: Arc::new(AbstractJoint::new()),
+            joint: Arc::new(AbstractJoint::new(default_reducer)),
         }
     }
 
@@ -72,7 +72,7 @@ impl<R: Dispatchable + Send + 'static> MPSCJoint<R> {
     pub async fn dispatch(
         &self,
         client_id: u64,
-        action: R::Action,
+        action: &str,
     ) -> Result<ActionResponse<R::Response>, String> {
         self.joint.dispatch(client_id, action).await
     }
