@@ -3,6 +3,7 @@ use crate::utils::snake_to_camel;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::{
     parse_macro_input, DeriveInput, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, ItemStruct,
     PatType, Signature, Token, Type,
@@ -80,7 +81,9 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
             &format!("Action{}", snake_to_camel(&sig.ident.to_string())),
             span,
         );
-        quote! {#name}
+        let expanded = quote! {#name};
+
+        expanded
     }
 
     fn parse_action_args(sig: &Signature) -> Vec<&PatType> {
@@ -125,15 +128,34 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
             let name = parse_action_name(&method.sig);
             let args = parse_action_arg_types(&method.sig);
 
-            let expanded = quote! {
+            quote! {
                 #name(#(#args),*)
-            };
-
-            expanded
+            }
         })
         .collect::<Vec<_>>();
 
     let action_enum_name = Ident::new(&format!("Action{}", reducer_name), reducer_span);
+
+    let action_names = methods
+        .clone()
+        .iter()
+        .map(|method| {
+            let enum_name = &action_enum_name.clone();
+            let action_name = parse_action_name(&method.sig);
+            // let action_name_str =
+            //     Ident::new(&format!("{}", action_name), action_name.span()).to_token_stream();
+            let action_name_str = &format!("{}", action_name);
+            let args = parse_action_arg_names(&method.sig);
+
+            println!("ACTION NAME AAA: {}", action_name_str);
+
+            let result = quote! {
+                #enum_name::#action_name(#(#args),*) => String::from(#action_name_str)
+            };
+
+            result
+        })
+        .collect::<Vec<_>>();
 
     let action_handlers = methods
         .clone()
@@ -174,11 +196,16 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
                 client_id: u64,
                 action:  #enum_name,
             ) -> Result<injoint::dispatcher::ActionResponse<#state_struct>, String> {
+                let name = match &action {
+                    #(#action_names),*
+                };
+
                 let msg = match action {
                     #(#action_handlers),*
                 };
 
                 Ok(injoint::dispatcher::ActionResponse {
+                    status: name,
                     state: self.state.clone(),
                     author: client_id,
                     data: msg,

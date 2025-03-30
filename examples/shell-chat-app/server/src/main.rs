@@ -1,6 +1,6 @@
 use injoint::codegen::{reducer_actions, Broadcastable};
 use injoint::joint::ws::WebsocketJoint;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 
 #[derive(Serialize, Debug, Clone, Broadcastable)]
@@ -29,11 +29,6 @@ impl Reducer {
             },
         }
     }
-}
-
-enum Actions {
-    IdentifyUser(String),
-    SendMessage(String),
 }
 
 #[reducer_actions(State)]
