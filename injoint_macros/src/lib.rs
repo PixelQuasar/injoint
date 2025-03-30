@@ -3,12 +3,49 @@ use crate::utils::snake_to_camel;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, PatType, Signature, Token,
-    Type,
+    parse_macro_input, DeriveInput, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, ItemStruct,
+    PatType, Signature, Token, Type,
 };
 
 mod utils;
+
+#[proc_macro_derive(Broadcastable)]
+pub fn derive_broadcastable(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let struct_name = input.ident;
+
+    let expanded = quote! {
+        impl injoint::utils::types::Broadcastable for #struct_name {}
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn reducer_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input: ItemStruct = parse_macro_input!(item);
+
+    let reducer_name = input.clone().ident;
+
+    let args: Vec<Ident> =
+        parse_macro_input!(attr with Punctuated::<Ident, Token![,]>::parse_terminated)
+            .into_iter()
+            .collect();
+
+    let state_struct = args[0].clone();
+
+    let expanded = quote! {
+        impl injoint::utils::types::Broadcastable for #state_struct {}
+        impl injoint::utils::types::Broadcastable for #reducer_name {}
+        #[derive(serde::Serialize)]
+        #input
+    };
+
+    TokenStream::from(expanded)
+}
 
 #[proc_macro_attribute]
 pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -44,7 +81,9 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
             &format!("Action{}", snake_to_camel(&sig.ident.to_string())),
             span,
         );
-        quote! {#name}
+        let expanded = quote! {#name};
+
+        expanded
     }
 
     fn parse_action_args(sig: &Signature) -> Vec<&PatType> {
@@ -89,15 +128,34 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
             let name = parse_action_name(&method.sig);
             let args = parse_action_arg_types(&method.sig);
 
-            let expanded = quote! {
+            quote! {
                 #name(#(#args),*)
-            };
-
-            expanded
+            }
         })
         .collect::<Vec<_>>();
 
     let action_enum_name = Ident::new(&format!("Action{}", reducer_name), reducer_span);
+
+    let action_names = methods
+        .clone()
+        .iter()
+        .map(|method| {
+            let enum_name = &action_enum_name.clone();
+            let action_name = parse_action_name(&method.sig);
+            // let action_name_str =
+            //     Ident::new(&format!("{}", action_name), action_name.span()).to_token_stream();
+            let action_name_str = &format!("{}", action_name);
+            let args = parse_action_arg_names(&method.sig);
+
+            println!("ACTION NAME AAA: {}", action_name_str);
+
+            let result = quote! {
+                #enum_name::#action_name(#(#args),*) => String::from(#action_name_str)
+            };
+
+            result
+        })
+        .collect::<Vec<_>>();
 
     let action_handlers = methods
         .clone()
@@ -121,15 +179,15 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
     let expanded = quote! {
         #implementation
 
-        #[derive(Deserialize, Debug)]
+        #[derive(serde::Deserialize, Debug)]
         #[serde(tag = "type", content = "data")]
         enum #enum_name {
             #(#actions),*
         }
 
-        impl Receivable for #enum_name {}
+        impl injoint::utils::types::Receivable for #enum_name {}
 
-        impl Dispatchable for #reducer_name {
+        impl injoint::dispatcher::Dispatchable for #reducer_name {
             type Action = #enum_name;
             type Response = #state_struct;
 
@@ -137,12 +195,17 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
                 &mut self,
                 client_id: u64,
                 action:  #enum_name,
-            ) -> Result<ActionResponse<#state_struct>, String> {
+            ) -> Result<injoint::dispatcher::ActionResponse<#state_struct>, String> {
+                let name = match &action {
+                    #(#action_names),*
+                };
+
                 let msg = match action {
                     #(#action_handlers),*
                 };
 
-                Ok(ActionResponse {
+                Ok(injoint::dispatcher::ActionResponse {
+                    status: name,
                     state: self.state.clone(),
                     author: client_id,
                     data: msg,
@@ -153,7 +216,7 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
                 &mut self,
                 client_id: u64,
                 action: &str,
-            ) -> Result<ActionResponse<#state_struct>, String> {
+            ) -> Result<injoint::dispatcher::ActionResponse<#state_struct>, String> {
                 let action: #enum_name = serde_json::from_str(action).unwrap();
                 self.dispatch(client_id, action).await
             }
