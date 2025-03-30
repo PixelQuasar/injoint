@@ -1,7 +1,6 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fmt::Debug;
 
-pub trait Broadcastable: Serialize + Debug + Default {}
+pub trait Broadcastable: Serialize {}
 
-pub trait Receivable: DeserializeOwned + Debug {}
+pub trait Receivable: DeserializeOwned {}
