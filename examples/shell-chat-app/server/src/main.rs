@@ -58,4 +58,5 @@ async fn main() {
     let reducer = Reducer::new();
     let mut joint = WebsocketJoint::<Reducer>::new(reducer);
     joint.bind_addr("127.0.0.1:3000").await;
+    joint.listen().await;
 }
