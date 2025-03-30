@@ -1,24 +1,21 @@
-use injoint::codegen::reducer_actions;
-use injoint::dispatcher::{ActionResponse, Dispatchable};
+use injoint::codegen::{reducer_actions, Broadcastable};
 use injoint::joint::ws::WebsocketJoint;
-use injoint::utils::types::{Broadcastable, Receivable};
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, Broadcastable)]
 struct Message {
     pub author: u64,
     pub content: String,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Default, Clone, Broadcastable)]
 struct State {
     users: HashMap<u64, String>,
     messages: Vec<Message>,
 }
-impl Broadcastable for State {}
 
+#[derive(Default, Serialize, Broadcastable)]
 struct Reducer {
     state: State,
 }
@@ -39,33 +36,8 @@ enum Actions {
     SendMessage(String),
 }
 
+#[reducer_actions(State)]
 impl Reducer {
-    fn dispatch(&mut self, client_id: u64, action: Actions) -> Result<String, String> {
-        match action {
-            Actions::IdentifyUser(name) => {
-                if self.state.users.contains_key(&client_id) {
-                    return Err("User already identified".to_string());
-                }
-                self.state.users.insert(client_id, name.clone());
-                Ok(name)
-            }
-            Actions::SendMessage(text) => {
-                if !self.state.users.contains_key(&client_id) {
-                    return Err("User not identified".to_string());
-                }
-                self.state.messages.push(Message {
-                    author: client_id,
-                    content: text.clone(),
-                });
-                Ok(text)
-            }
-        }
-    }
-}
-
-#[reducer_actions(State, Actions)]
-impl Reducer {
-    #[reducer_action(Actions::IdentifyUser)]
     async fn identify_user(&mut self, client_id: u64, name: String) -> Result<String, String> {
         if self.state.users.contains_key(&client_id) {
             return Err("User already identified".to_string());
@@ -74,7 +46,6 @@ impl Reducer {
         Ok(name)
     }
 
-    #[reducer_action(Actions::IdentifyUser)]
     async fn send_message(&mut self, client_id: u64, text: String) -> Result<String, String> {
         if !self.state.users.contains_key(&client_id) {
             return Err("User not identified".to_string());
