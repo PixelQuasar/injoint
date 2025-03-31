@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
+use serde_json::json;
 
 #[derive(Serialize, Debug)]
 struct ChatRequest {
@@ -124,8 +125,8 @@ async fn join_room(
 ) -> Result<()> {
     let join_request = ChatRequest {
         message: RequestMessage {
-            msg_type: "Create".to_string(),
-            data: None,
+            msg_type: "Join".to_string(),
+            data: Some(json!(0)), 
         },
         client_token: "0".to_string(),
     };
@@ -258,8 +259,7 @@ async fn handle_server_message(
 
     match response.status.as_str() {
         "RoomCreated" => {
-            println!("Room created successfully");
-            join_room(Arc::clone(writer)).await?;
+            println!("Room created successfully {:#?}", response);
         }
         "RoomJoined" => {
             println!(
