@@ -6,16 +6,19 @@ use crate::joint::AbstractJoint;
 use crate::message::JointMessage;
 use crate::response::Response;
 use async_trait::async_trait;
-use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, WebSocketStream};
-use tungstenite::{Message, Utf8Bytes};
+use tungstenite::Message;
 
+#[derive(Clone)]
 struct WSSink {
-    sink: SplitSink<WebSocketStream<TcpStream>, Message>,
+    tx: mpsc::Sender<Result<Message, tungstenite::Error>>,
 }
 
 #[async_trait]
@@ -24,8 +27,12 @@ impl SinkAdapter for WSSink {
         &mut self,
         response: Response,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let message = Message::Text(Utf8Bytes::from(serde_json::to_string(&response)?));
-        self.sink.send(message).await.map_err(|e| Box::new(e) as _)
+        let message_text = serde_json::to_string(&response)?;
+        self.tx
+            .send(Ok(Message::Text(message_text.into())))
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        Ok(())
     }
 }
 
@@ -54,6 +61,7 @@ impl StreamAdapter for WSStream {
 pub struct WebsocketJoint<R: Dispatchable + Send + 'static> {
     joint: Arc<AbstractJoint<R, WSSink>>,
     tcp_listener: Option<TcpListener>,
+    local_addr: Option<SocketAddr>,
 }
 
 impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
@@ -61,16 +69,19 @@ impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
         WebsocketJoint {
             joint: Arc::new(AbstractJoint::new(default_reducer)),
             tcp_listener: None,
+            local_addr: None,
         }
     }
 
-    pub async fn bind_listener(&mut self, listener: TcpListener) {
-        self.tcp_listener = Some(listener);
+    pub async fn bind_addr(&mut self, addr: &str) -> io::Result<()> {
+        let tcp_listener = TcpListener::bind(addr).await?;
+        self.local_addr = Some(tcp_listener.local_addr()?);
+        self.tcp_listener = Some(tcp_listener);
+        Ok(())
     }
 
-    pub async fn bind_addr(&mut self, addr: &str) {
-        let tcp_listener = TcpListener::bind(addr).await.unwrap();
-        self.tcp_listener = Some(tcp_listener);
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        self.local_addr
     }
 
     pub async fn listen(&mut self) {
@@ -90,22 +101,45 @@ impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
         R: Dispatchable + Send + 'static,
     {
         let websocket = accept_async(stream).await.unwrap();
-        let (sink, stream) = websocket.split();
+        let (mut websocket_sink, websocket_stream) = websocket.split();
 
-        let mut sender_wrapper = WSStream { stream };
+        let (tx, mut rx) = mpsc::channel::<Result<Message, tungstenite::Error>>(100);
 
-        let receiver_adapter = WSSink { sink };
+        tokio::spawn(async move {
+            while let Some(result) = rx.recv().await {
+                match result {
+                    Ok(msg) => {
+                        if websocket_sink.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = websocket_sink.close().await;
+                        eprintln!(
+                            "[Sink Task {:?}] Sink closed due to channel error, breaking loop.",
+                            std::thread::current().id()
+                        );
+                        break;
+                    }
+                }
+            }
+            let close_result = websocket_sink.close().await;
+        });
 
-        joint
-            .handle_stream(&mut sender_wrapper, receiver_adapter)
-            .await;
+        let mut stream_adapter = WSStream {
+            stream: websocket_stream,
+        };
+
+        let sink_adapter = WSSink { tx };
+
+        joint.handle_stream(&mut stream_adapter, sink_adapter).await;
     }
 
     pub async fn dispatch(
         &self,
         client_id: u64,
         action: &str,
-    ) -> Result<ActionResponse<R::Response>, String> {
+    ) -> Result<ActionResponse<R::State>, String> {
         self.joint.dispatch(client_id, action).await
     }
 }

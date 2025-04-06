@@ -15,7 +15,7 @@ struct State {
     messages: Vec<Message>,
 }
 
-#[derive(Default, Serialize, Broadcastable)]
+#[derive(Default, Serialize, Clone, Broadcastable)]
 struct Reducer {
     state: State,
 }

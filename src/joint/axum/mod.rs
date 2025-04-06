@@ -6,28 +6,35 @@ use crate::joint::AbstractJoint;
 use crate::message::JointMessage;
 use crate::response::Response;
 use async_trait::async_trait;
-use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
+use axum::extract::ws::{Message, WebSocket};
 use axum::extract::WebSocketUpgrade;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::io::{self};
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 
+#[derive(Clone)]
 pub struct AxumWSSink {
-    sink: SplitSink<WebSocket, Message>,
+    tx: mpsc::Sender<Result<Message, axum::Error>>,
 }
+
 #[async_trait]
 impl SinkAdapter for AxumWSSink {
     async fn send(
         &mut self,
         response: Response,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let message = Message::Text(Utf8Bytes::from(serde_json::to_string(&response)?));
-        self.sink.send(message).await.map_err(|e| Box::new(e) as _)
+        let message_text = serde_json::to_string(&response)?;
+        self.tx
+            .send(Ok(Message::Text(message_text.into())))
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        Ok(())
     }
 }
 
@@ -76,15 +83,37 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         joint: Arc<AbstractJoint<R, AxumWSSink>>,
     ) -> impl IntoResponse {
         ws.on_upgrade(|socket| async move {
-            let (sender, receiver) = socket.split();
+            let (mut websocket_sink, websocket_stream) = socket.split();
 
-            let mut sender_wrapper = AxumWSStream { stream: receiver };
+            let (tx, mut rx) = mpsc::channel::<Result<Message, axum::Error>>(100);
 
-            let receiver_wrapper = AxumWSSink { sink: sender };
+            tokio::spawn(async move {
+                while let Some(result) = rx.recv().await {
+                    match result {
+                        Ok(msg) => {
+                            if websocket_sink.send(msg).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error received in AxumWSSink channel: {}", e);
+                            let _ = websocket_sink.close().await;
+                            break;
+                        }
+                    }
+                }
+                let _ = websocket_sink.close().await;
+            });
+
+            let mut stream_adapter = AxumWSStream {
+                stream: websocket_stream,
+            };
+
+            let sink_adapter = AxumWSSink { tx };
 
             joint
                 .clone()
-                .handle_stream(&mut sender_wrapper, receiver_wrapper)
+                .handle_stream(&mut stream_adapter, sink_adapter)
                 .await;
         })
     }
@@ -98,7 +127,7 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         &self,
         client_id: u64,
         action: &str,
-    ) -> Result<ActionResponse<R::Response>, String> {
+    ) -> Result<ActionResponse<R::State>, String> {
         self.joint.dispatch(client_id, action).await
     }
 }

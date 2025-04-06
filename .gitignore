@@ -26,3 +26,6 @@ Cargo.lock
 
 # IDE folders
 .idea/
+
+# test coverage
+tarpaulin-report.html

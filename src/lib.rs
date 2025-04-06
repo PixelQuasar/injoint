@@ -3,8 +3,8 @@ mod client;
 mod connection;
 pub mod dispatcher;
 pub mod joint;
-mod message;
-mod response;
+pub mod message;
+pub mod response;
 mod room;
 pub mod utils;
 pub mod codegen {

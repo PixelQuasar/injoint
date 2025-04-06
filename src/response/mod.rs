@@ -1,12 +1,17 @@
+mod test;
+
+use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeStruct;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt;
 use std::fmt::Debug;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ResponseStatus {
     RoomCreated,
     RoomJoined,
+    StateSent,
     Action,
     RoomLeft,
     ServerError,
@@ -18,6 +23,7 @@ pub enum ResponseStatus {
 pub enum Response {
     RoomCreated(u64),
     RoomJoined(u64),
+    StateSent(String),
     Action(String), // maybe this should be a generic type that serializable?
     RoomLeft(u64),
     ServerError(String),
@@ -47,6 +53,15 @@ impl serde::ser::Serialize for Response {
                 s.serialize_field(STATUS_STR, &ResponseStatus::RoomJoined)?;
                 s.serialize_field(MESSAGE_STR, client_id)?;
             }
+            Response::StateSent(payload) => {
+                s.serialize_field(STATUS_STR, &ResponseStatus::StateSent)?;
+                match serde_json::from_str::<Value>(payload) {
+                    Ok(json_value) => s.serialize_field("message", &json_value)?,
+                    Err(_) => {
+                        s.serialize_field("message", payload)?;
+                    }
+                }
+            }
             Response::Action(payload) => {
                 s.serialize_field(STATUS_STR, &ResponseStatus::Action)?;
                 match serde_json::from_str::<Value>(payload) {
@@ -74,6 +89,149 @@ impl serde::ser::Serialize for Response {
             }
         }
         s.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Response {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        enum Field {
+            Status,
+            Message,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: serde::de::Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("`status` or `message`")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            STATUS_STR => Ok(Field::Status),
+                            MESSAGE_STR => Ok(Field::Message),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct ResponseVisitor;
+
+        impl<'de> Visitor<'de> for ResponseVisitor {
+            type Value = Response;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Response")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Response, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut status: Option<ResponseStatus> = None;
+                // Use Value initially for message to handle different types
+                let mut message_value: Option<Value> = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Status => {
+                            if status.is_some() {
+                                return Err(de::Error::duplicate_field(STATUS_STR));
+                            }
+                            // Deserialize status directly into ResponseStatus enum
+                            status = Some(map.next_value()?);
+                        }
+                        Field::Message => {
+                            if message_value.is_some() {
+                                return Err(de::Error::duplicate_field(MESSAGE_STR));
+                            }
+                            // Deserialize message as a generic Value first
+                            message_value = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let status = status.ok_or_else(|| de::Error::missing_field(STATUS_STR))?;
+                let message_value =
+                    message_value.ok_or_else(|| de::Error::missing_field(MESSAGE_STR))?;
+
+                // Now, based on status, parse message_value into the specific type
+                match status {
+                    ResponseStatus::RoomCreated
+                    | ResponseStatus::RoomJoined
+                    | ResponseStatus::RoomLeft => {
+                        let id = message_value.as_u64().ok_or_else(|| {
+                            de::Error::invalid_type(
+                                de::Unexpected::Other("non-u64 value"),
+                                &"an unsigned 64-bit integer",
+                            )
+                        })?;
+                        match status {
+                            ResponseStatus::RoomCreated => Ok(Response::RoomCreated(id)),
+                            ResponseStatus::RoomJoined => Ok(Response::RoomJoined(id)),
+                            ResponseStatus::RoomLeft => Ok(Response::RoomLeft(id)),
+                            _ => unreachable!(), // Should not happen due to outer match
+                        }
+                    }
+                    ResponseStatus::StateSent | ResponseStatus::Action => {
+                        // For StateSent and Action, we expect the payload as a string (could be stringified JSON or plain string)
+                        // We store it as a string in the enum variant.
+                        let payload_str = message_value.to_string(); // Convert the Value back to string representation
+                                                                     // If it was originally a string, remove quotes added by to_string()
+                        let payload_str = if message_value.is_string() {
+                            message_value.as_str().unwrap_or(&payload_str).to_string()
+                        } else {
+                            payload_str
+                        };
+
+                        match status {
+                            ResponseStatus::StateSent => Ok(Response::StateSent(payload_str)),
+                            ResponseStatus::Action => Ok(Response::Action(payload_str)),
+                            _ => unreachable!(),
+                        }
+                    }
+                    ResponseStatus::ServerError
+                    | ResponseStatus::ClientError
+                    | ResponseStatus::NotFound => {
+                        let msg = message_value
+                            .as_str()
+                            .ok_or_else(|| {
+                                de::Error::invalid_type(
+                                    de::Unexpected::Other("non-string value"),
+                                    &"a string",
+                                )
+                            })?
+                            .to_string();
+                        match status {
+                            ResponseStatus::ServerError => Ok(Response::ServerError(msg)),
+                            ResponseStatus::ClientError => Ok(Response::ClientError(msg)),
+                            ResponseStatus::NotFound => Ok(Response::NotFound(msg)),
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+        }
+
+        const FIELDS: &'static [&'static str] = &[STATUS_STR, MESSAGE_STR];
+        deserializer.deserialize_struct(RESPONSE_STR, FIELDS, ResponseVisitor)
     }
 }
 
@@ -126,35 +284,35 @@ impl serde::ser::Serialize for RoomResponse {
 }
 
 #[derive(Debug)]
-pub struct ErrorResponse {
+pub struct ClientResponse {
     pub client: u64,
     pub response: Response,
 }
 
-impl ErrorResponse {
+impl ClientResponse {
     pub fn server_error(client: u64, message: String) -> Self {
-        ErrorResponse {
+        ClientResponse {
             client,
             response: Response::ServerError(message),
         }
     }
 
     pub fn client_error(client: u64, message: String) -> Self {
-        ErrorResponse {
+        ClientResponse {
             client,
             response: Response::ClientError(message),
         }
     }
 
     pub fn not_found(client: u64, message: String) -> Self {
-        ErrorResponse {
+        ClientResponse {
             client,
             response: Response::NotFound(message),
         }
     }
 }
 
-impl serde::ser::Serialize for ErrorResponse {
+impl serde::ser::Serialize for ClientResponse {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,

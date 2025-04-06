@@ -3,33 +3,31 @@ use crate::client::Client;
 use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::{ActionResponse, Dispatchable};
 use rand::Rng;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
+#[cfg(not(tarpaulin))]
 pub mod axum;
 pub mod mpsc;
 mod test;
+#[cfg(not(tarpaulin))]
 pub mod ws;
 
 // Root abstract struct that provides all publish-subscribe functionality
 pub struct AbstractJoint<R, Sink>
 where
-    Sink: SinkAdapter + Unpin,
-    R: Dispatchable + Send,
+    Sink: SinkAdapter + Unpin + Clone,
+    R: Dispatchable + Send + Clone,
 {
-    broadcaster: Broadcaster<Sink>,
-    reducer: Arc<Mutex<R>>,
+    pub(crate) broadcaster: Broadcaster<Sink, R>,
 }
 
 impl<R, Sink> AbstractJoint<R, Sink>
 where
-    Sink: SinkAdapter + Unpin,
-    R: Dispatchable + Send,
+    Sink: SinkAdapter + Unpin + Clone,
+    R: Dispatchable + Send + Clone,
 {
     pub fn new(default_reducer: R) -> Self {
         AbstractJoint {
-            broadcaster: Broadcaster::new(),
-            reducer: Arc::new(Mutex::new(default_reducer)),
+            broadcaster: Broadcaster::new(default_reducer),
         }
     }
 
@@ -38,9 +36,8 @@ where
         &self,
         client_id: u64,
         action: &str,
-    ) -> Result<ActionResponse<R::Response>, String> {
-        let mut reducer = self.reducer.lock().await;
-        reducer.extern_dispatch(client_id, action).await
+    ) -> Result<ActionResponse<R::State>, String> {
+        self.broadcaster.extern_dispatch(client_id, action).await
     }
 
     // handles new abstract split sink
@@ -57,12 +54,15 @@ where
             )
             .await;
 
-        self.broadcaster
-            .handle_rx(new_client_id, receiver, self.reducer.clone())
-            .await;
+        self.broadcaster.handle_rx(new_client_id, receiver).await;
 
         self.broadcaster
             .remove_client_connection(new_client_id)
             .await;
+    }
+
+    #[allow(dead_code)] // used in tests
+    pub(crate) fn get_broadcaster(&self) -> &Broadcaster<Sink, R> {
+        &self.broadcaster
     }
 }

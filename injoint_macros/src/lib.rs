@@ -147,8 +147,6 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
             let action_name_str = &format!("{}", action_name);
             let args = parse_action_arg_names(&method.sig);
 
-            println!("ACTION NAME AAA: {}", action_name_str);
-
             let result = quote! {
                 #enum_name::#action_name(#(#args),*) => String::from(#action_name_str)
             };
@@ -189,7 +187,11 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl injoint::dispatcher::Dispatchable for #reducer_name {
             type Action = #enum_name;
-            type Response = #state_struct;
+            type State = #state_struct;
+
+            fn get_state(&self) -> #state_struct {
+                self.state.clone()
+            }
 
             async fn dispatch(
                 &mut self,
@@ -219,6 +221,10 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
             ) -> Result<injoint::dispatcher::ActionResponse<#state_struct>, String> {
                 let action: #enum_name = serde_json::from_str(action).unwrap();
                 self.dispatch(client_id, action).await
+            }
+
+            fn get_state(&self) -> #state_struct {
+                self.state.clone()
             }
         }
     };

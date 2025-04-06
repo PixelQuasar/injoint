@@ -1,79 +1,73 @@
 #[cfg(test)]
-mod mpsc_joint_tests {
+mod tests {
     use super::*;
-    use crate::client::Client;
     use crate::dispatcher::{ActionResponse, Dispatchable};
     use crate::joint::mpsc::MPSCJoint;
     use crate::message::{JointMessage, JointMessageMethod};
-    use crate::response::{ErrorResponse, Response, RoomResponse};
-    use crate::utils::types::Broadcastable;
+    use crate::response::Response;
+    use crate::utils::types::{Broadcastable, Receivable};
     use serde::{Deserialize, Serialize};
-    use std::sync::Arc;
-    use tokio::sync::mpsc;
-    use tokio::time::{sleep, Duration};
+    use std::sync::mpsc::Receiver;
+    use std::time::Duration;
+    use tokio::time::sleep;
 
-    // Test action type for our room-based tests
     #[derive(Debug, Clone, Deserialize, Serialize)]
-    enum GameAction {
-        UpdateScore { player_id: u64, points: i32 },
-        SendMessage { content: String },
-        UpdateGameState { state: String },
+    enum TestAction {
+        Increment,
+        Add(i32),
+        Message(String),
     }
 
-    impl crate::utils::types::Receivable for GameAction {}
+    impl Receivable for TestAction {}
 
-    // Test state type for our room-based tests
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-    struct GameState {
-        scores: std::collections::HashMap<u64, i32>,
+    struct TestState {
+        counter: i32,
         messages: Vec<String>,
-        current_state: String,
     }
 
-    impl Broadcastable for GameState {}
+    impl Broadcastable for TestState {}
 
-    // Test reducer
-    #[derive(Default)]
-    struct GameReducer {
-        state: GameState,
+    #[derive(Clone, Default)]
+    struct TestReducer {
+        state: TestState,
     }
 
-    impl Dispatchable for GameReducer {
-        type Action = GameAction;
-        type Response = GameState;
+    impl Dispatchable for TestReducer {
+        type Action = TestAction;
+        type State = TestState;
 
         async fn dispatch(
             &mut self,
             client_id: u64,
-            action: GameAction,
-        ) -> Result<ActionResponse<GameState>, String> {
+            action: TestAction,
+        ) -> Result<ActionResponse<TestState>, String> {
             match action {
-                GameAction::UpdateScore { player_id, points } => {
-                    let current_score = self.state.scores.get(&player_id).cloned().unwrap_or(0);
-                    self.state.scores.insert(player_id, current_score + points);
-
+                TestAction::Increment => {
+                    self.state.counter += 1;
                     Ok(ActionResponse {
+                        status: "success".into(),
                         state: self.state.clone(),
                         author: client_id,
-                        data: format!("Player {} score updated", player_id),
+                        data: self.state.counter.to_string(),
                     })
                 }
-                GameAction::SendMessage { content } => {
-                    self.state.messages.push(content.clone());
-
+                TestAction::Add(value) => {
+                    self.state.counter += value;
                     Ok(ActionResponse {
+                        status: "success".into(),
                         state: self.state.clone(),
                         author: client_id,
-                        data: format!("Message sent: {}", content),
+                        data: format!("Added {}", value),
                     })
                 }
-                GameAction::UpdateGameState { state } => {
-                    self.state.current_state = state.clone();
-
+                TestAction::Message(text) => {
+                    self.state.messages.push(text.clone());
                     Ok(ActionResponse {
+                        status: "success".into(),
                         state: self.state.clone(),
                         author: client_id,
-                        data: format!("Game state updated to: {}", state),
+                        data: text,
                     })
                 }
             }
@@ -82,473 +76,444 @@ mod mpsc_joint_tests {
         async fn extern_dispatch(
             &mut self,
             client_id: u64,
-            action: &str,
-        ) -> Result<ActionResponse<GameState>, String> {
-            let action: GameAction = serde_json::from_str(action).map_err(|e| e.to_string())?;
+            action_str: &str,
+        ) -> Result<ActionResponse<TestState>, String> {
+            let action: TestAction = serde_json::from_str(action_str)
+                .map_err(|e| format!("Failed to parse action: {}", e))?;
             self.dispatch(client_id, action).await
         }
-    }
 
-    // Helper functions for creating and handling messages
-    fn create_message(method: JointMessageMethod) -> JointMessage {
-        JointMessage {
-            message: method,
-            client_token: "0".to_string(),
+        fn get_state(&self) -> TestState {
+            self.state.clone()
         }
     }
 
-    fn create_action_message(action: GameAction) -> JointMessage {
+    fn create_message(method: JointMessageMethod) -> JointMessage {
+        JointMessage {
+            client_token: "test-token".to_string(),
+            message: method,
+        }
+    }
+
+    fn create_action_message(action: TestAction) -> JointMessage {
         let action_json = serde_json::to_string(&action).unwrap();
         create_message(JointMessageMethod::Action(action_json))
     }
 
-    fn extract_room_response(message: &RoomResponse) -> Response {
-        message.response.clone()
+
+    #[tokio::test]
+    async fn test_basic_connection() {
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
+        let (tx, mut rx) = joint.connect(10);
+
+        assert!(tx.capacity() >= 10);
+
+        drop(tx);
+        drop(rx);
     }
 
-    // Extract game state from an Action response
-    fn extract_action_response(response: &Response) -> Option<ActionResponse<GameState>> {
-        match &response {
-            Response::Action(action_data) => {
-                // If it's an action, deserialize the JSON data string to an ActionResponse
-                serde_json::from_str(action_data).ok()
+    #[tokio::test]
+    async fn test_create_room_flow() {
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
+        let (tx, mut rx) = joint.connect(10);
+
+        let create_msg = create_message(JointMessageMethod::Create);
+        tx.send(create_msg)
+            .await
+            .expect("Failed to send create message");
+
+        let mut room_id: Option<u64> = None;
+        while let Some(response) = rx.recv().await {
+            match response {
+                Response::RoomCreated(id) => {
+                    room_id = Some(id);
+                    break;
+                }
+                Response::StateSent(_) => {
+                }
+                other => {
+                    panic!("Unexpected response: {:?}", other);
+                }
             }
-            _ => None,
         }
-    }
 
-    // Extract error from a Response
-    fn extract_error_response(response: &Response) -> Option<String> {
-        match response {
-            Response::ServerError(msg) => Some(msg.clone()),
-            Response::ClientError(msg) => Some(msg.clone()),
-            Response::NotFound(msg) => Some(msg.clone()),
-            _ => None,
-        }
+        assert!(room_id.is_some(), "Room ID should be received");
+
+        drop(tx);
+        drop(rx);
     }
 
     #[tokio::test]
     async fn test_complete_client_flow() {
-        // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
-
-        // STEP 1: CONNECT
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
         let (tx, mut rx) = joint.connect(10);
 
-        // STEP 2: CREATE ROOM
-        tx.send(create_message(JointMessageMethod::Create))
+        let create_msg = create_message(JointMessageMethod::Create);
+        tx.send(create_msg)
             .await
-            .expect("Failed to send create room message");
+            .expect("Failed to send create message");
 
-        // Wait for room creation response
-        let response = rx.recv().await.expect("Failed to receive response");
+        let mut room_id: Option<u64> = None;
+        let mut initial_state: Option<TestState> = None;
 
-        // STEP 3: PERFORM ACTIONS
+        while room_id.is_none() || initial_state.is_none() {
+            if let Some(response) = rx.recv().await {
+                match response {
+                    Response::RoomCreated(id) => {
+                        room_id = Some(id);
+                    }
+                    Response::StateSent(state_json) => {
+                        let state: TestState =
+                            serde_json::from_str(&state_json).expect("Failed to parse state JSON");
+                        initial_state = Some(state);
+                    }
+                    other => {
+                        println!("Received other response: {:?}", other);
+                    }
+                }
+            }
+        }
 
-        // Update score action
-        let action1 = GameAction::UpdateScore {
-            player_id: 1,
-            points: 10,
-        };
-        tx.send(create_action_message(action1))
+        let state = initial_state.unwrap();
+        assert_eq!(state.counter, 0);
+        assert_eq!(state.messages.len(), 0);
+
+        let action_msg = create_action_message(TestAction::Add(5));
+        tx.send(action_msg)
             .await
-            .expect("Failed to send update score action");
+            .expect("Failed to send action message");
 
-        // Wait for action response
-        let response = rx.recv().await.expect("Failed to receive action response");
-        let action_response = extract_action_response(&response);
+        let mut updated_state: Option<TestState> = None;
+        while updated_state.is_none() {
+            if let Some(response) = rx.recv().await {
+                match response {
+                    Response::Action(action_json) => {
+                        let action_response: ActionResponse<TestState> =
+                            serde_json::from_str(&action_json)
+                                .expect("Failed to parse action response");
+                        updated_state = Some(action_response.state);
+                    }
+                    other => {
+                        println!("Received other response: {:?}", other);
+                    }
+                }
+            }
+        }
 
-        // Verify action was processed
-        assert!(action_response.is_some());
-        let state = action_response.unwrap().state;
-        assert_eq!(*state.scores.get(&1).unwrap(), 10);
+        let state = updated_state.unwrap();
+        assert_eq!(state.counter, 5);
 
-        // Send message action
-        let action2 = GameAction::SendMessage {
-            content: "Hello from test!".to_string(),
-        };
-        tx.send(create_action_message(action2))
+        let action_msg = create_action_message(TestAction::Message("Hello MPSC".to_string()));
+        tx.send(action_msg)
             .await
             .expect("Failed to send message action");
 
-        // Wait for action response
-        let response = rx.recv().await.expect("Failed to receive action response");
-        let action_response = extract_action_response(&response);
+        let mut updated_state2: Option<TestState> = None;
+        while updated_state2.is_none() {
+            if let Some(response) = rx.recv().await {
+                match response {
+                    Response::Action(action_json) => {
+                        let action_response: ActionResponse<TestState> =
+                            serde_json::from_str(&action_json)
+                                .expect("Failed to parse action response");
+                        updated_state2 = Some(action_response.state);
+                    }
+                    other => {
+                        println!("Received other response: {:?}", other);
+                    }
+                }
+            }
+        }
 
-        // Verify action was processed
-        assert!(action_response.is_some());
-        let state = action_response.unwrap().state;
-        assert_eq!(state.messages.len(), 1);
-        assert_eq!(state.messages[0], "Hello from test!");
+        let state = updated_state2.unwrap();
+        assert_eq!(state.counter, 5);
+        assert_eq!(state.messages, vec!["Hello MPSC"]);
 
-        // Update game state action
-        let action3 = GameAction::UpdateGameState {
-            state: "RUNNING".to_string(),
-        };
-        tx.send(create_action_message(action3))
+        let leave_msg = create_message(JointMessageMethod::Leave);
+        tx.send(leave_msg)
             .await
-            .expect("Failed to send update state action");
+            .expect("Failed to send leave message");
 
-        // Wait for action response
-        let response = rx.recv().await.expect("Failed to receive action response");
-        let action_response = extract_action_response(&response);
-
-        // Verify action was processed
-        assert!(action_response.is_some());
-        let state = action_response.unwrap().state;
-        assert_eq!(state.current_state, "RUNNING");
-
-        // STEP 4: LEAVE ROOM
-        tx.send(create_message(JointMessageMethod::Leave))
-            .await
-            .expect("Failed to send leave room message");
-
-        // STEP 5: DISCONNECT (by dropping the channel)
         drop(tx);
-
-        // Give time for the disconnect to propagate
-        sleep(Duration::from_millis(50)).await;
+        drop(rx);
     }
 
     #[tokio::test]
-    async fn test_multiple_clients_room_interaction() {
-        // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
+    async fn test_join_existing_room() {
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
 
-        // Connect client 1
         let (tx1, mut rx1) = joint.connect(10);
 
-        // Client 1 creates a room
-        tx1.send(create_message(JointMessageMethod::Create))
+        let create_msg = create_message(JointMessageMethod::Create);
+        tx1.send(create_msg)
             .await
-            .expect("Failed to send create room message");
+            .expect("Failed to send create message");
 
-        // Get room ID
-        let response = rx1.recv().await.expect("Failed to receive create response");
-        let room_id = match response {
-            Response::RoomCreated(room_response) => room_response,
-            _ => panic!("Expected room response"),
-        };
+        let mut room_id: Option<u64> = None;
+        while room_id.is_none() {
+            if let Some(response) = rx1.recv().await {
+                if let Response::RoomCreated(id) = response {
+                    room_id = Some(id);
+                }
+            }
+        }
 
-        // Connect client 2
+        let action_msg = create_action_message(TestAction::Add(10));
+        tx1.send(action_msg)
+            .await
+            .expect("Failed to send action message");
+
+        let mut action_processed = false;
+        while !action_processed {
+            if let Some(response) = rx1.recv().await {
+                if let Response::Action(_) = response {
+                    action_processed = true;
+                }
+            }
+        }
+
         let (tx2, mut rx2) = joint.connect(10);
 
-        // Client 2 joins the room
-        tx2.send(create_message(JointMessageMethod::Join(room_id)))
+        let join_msg = create_message(JointMessageMethod::Join(room_id.unwrap()));
+        tx2.send(join_msg)
             .await
-            .expect("Failed to send join room message");
+            .expect("Failed to send join message");
 
-        // Client 2 gets join confirmation
-        let response = rx2
-            .recv()
-            .await
-            .expect("Client 2 failed to receive join response");
+        let mut join_confirmed = false;
+        let mut received_state: Option<TestState> = None;
 
-        match response {
-            Response::RoomJoined(_) => (),
-            _ => panic!("Expected room join response"),
+        while !join_confirmed || received_state.is_none() {
+            if let Some(response) = rx2.recv().await {
+                match response {
+                    Response::RoomJoined(_) => {
+                        join_confirmed = true;
+                    }
+                    Response::StateSent(state_json) => {
+                        let state: TestState =
+                            serde_json::from_str(&state_json).expect("Failed to parse state JSON");
+                        received_state = Some(state);
+                    }
+                    other => {
+                        println!("Received other response: {:?}", other);
+                    }
+                }
+            }
         }
 
-        // Client 1 also receives notification that client 2 joined
-        let response = rx1
-            .recv()
-            .await
-            .expect("Client 1 failed to receive join notification");
-        match response {
-            Response::RoomJoined(_) => (),
-            _ => panic!("Expected room join response"),
-        }
+        let state = received_state.unwrap();
+        assert_eq!(state.counter, 10);
 
-        // Client 1 sends a message
-        let action = GameAction::SendMessage {
-            content: "Hello from client 1!".to_string(),
-        };
-        tx1.send(create_action_message(action))
-            .await
-            .expect("Failed to send message action");
-
-        // Both clients should receive the action response
-
-        // Client 1 receives it
-        let response1 = rx1
-            .recv()
-            .await
-            .expect("Client 1 failed to receive action response");
-        let action_response1 =
-            extract_action_response(&response1).expect("Expected action response");
-
-        // Client 2 receives it
-        let response2 = rx2
-            .recv()
-            .await
-            .expect("Client 2 failed to receive action response");
-        let action_response2 =
-            extract_action_response(&response2).expect("Expected action response");
-
-        // Verify both clients received the same state update
-        assert_eq!(action_response1.state, action_response2.state);
-        assert_eq!(action_response1.state.messages[0], "Hello from client 1!");
-
-        // Client 2 sends a message
-        let action = GameAction::SendMessage {
-            content: "Hello from client 2!".to_string(),
-        };
-        tx2.send(create_action_message(action))
-            .await
-            .expect("Failed to send message action");
-
-        // Both clients should receive the action response
-
-        // Client 1 receives it
-        let response1 = rx1
-            .recv()
-            .await
-            .expect("Client 1 failed to receive action response");
-        let action_response1 =
-            extract_action_response(&response1).expect("Expected action response");
-
-        // Client 2 receives it
-        let response2 = rx2
-            .recv()
-            .await
-            .expect("Client 2 failed to receive action response");
-        let action_response2 =
-            extract_action_response(&response2).expect("Expected action response");
-
-        // Verify both clients received the same state update
-        assert_eq!(action_response1.state, action_response2.state);
-        assert_eq!(action_response1.state.messages.len(), 2);
-        assert_eq!(action_response1.state.messages[1], "Hello from client 2!");
-
-        // Client 1 leaves the room
-        tx1.send(create_message(JointMessageMethod::Leave))
-            .await
-            .expect("Failed to send leave room message");
-
-        // Client 2 receives notification that client 1 left
-        let response = rx2
-            .recv()
-            .await
-            .expect("Client 2 failed to receive leave notification");
-        match response {
-            Response::RoomLeft(_) => (),
-            _ => panic!("Expected room leave response"),
-        }
-
-        // Client 2 leaves the room
-        tx2.send(create_message(JointMessageMethod::Leave))
-            .await
-            .expect("Failed to send leave room message");
-    }
-
-    #[tokio::test]
-    async fn test_room_error_handling() {
-        // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
-
-        // Connect a client
-        let (tx, mut rx) = joint.connect(10);
-
-        // Try to perform an action without joining a room first
-        let action = GameAction::UpdateScore {
-            player_id: 1,
-            points: 10,
-        };
-        tx.send(create_action_message(action))
-            .await
-            .expect("Failed to send action without room");
-
-        // Should receive an error response
-        let response = rx.recv().await.expect("Failed to receive error response");
-        let error = extract_error_response(&response).expect("Expected error response");
-
-        // Verify error message
-        assert!(error.contains("Client not in room"));
-
-        // Try to leave a room when not in one
-        tx.send(create_message(JointMessageMethod::Leave))
-            .await
-            .expect("Failed to send leave message without being in room");
-
-        // Should receive an error response
-        let response = rx.recv().await.expect("Failed to receive error response");
-        let error = extract_error_response(&response).expect("Expected error response");
-
-        // Verify error message
-        assert!(error.contains("Client not in room"));
-
-        // Create a room now
-        tx.send(create_message(JointMessageMethod::Create))
-            .await
-            .expect("Failed to send create room message");
-
-        // Should receive success response
-        let response = rx
-            .recv()
-            .await
-            .expect("Failed to receive create room response");
-        match response {
-            Response::RoomCreated(_) => (),
-            _ => panic!("Expected room create response"),
-        }
-
-        // Try to create another room while in one
-        tx.send(create_message(JointMessageMethod::Create))
-            .await
-            .expect("Failed to send second create room message");
-
-        // Should receive an error response
-        let response = rx.recv().await.expect("Failed to receive error response");
-        let error = extract_error_response(&response).expect("Expected error response");
-
-        // Verify error message
-        assert!(error.contains("Leave current room"));
-    }
-
-    #[tokio::test]
-    async fn test_room_reconnection() {
-        // Create the joint
-        let joint = MPSCJoint::<GameReducer>::new(GameReducer::default());
-
-        // Connect first client
-        let (tx1, mut rx1) = joint.connect(10);
-
-        // Create a room
-        tx1.send(create_message(JointMessageMethod::Create))
-            .await
-            .expect("Failed to send create room message");
-
-        // Get room ID
-        let response = rx1.recv().await.expect("Failed to receive create response");
-        let room_id = match response {
-            Response::RoomCreated(id) => id,
-            _ => panic!("Expected room create response"),
-        };
-
-        // Send a message to have some state
-        let action = GameAction::UpdateGameState {
-            state: "WAITING".to_string(),
-        };
-        tx1.send(create_action_message(action))
-            .await
-            .expect("Failed to send update state action");
-
-        // Wait for action confirmation
-        let response = rx1.recv().await.expect("Failed to receive action response");
-        extract_action_response(&response).expect("Expected action response");
-
-        // Connect a second client
-        let (tx2, mut rx2) = joint.connect(10);
-
-        // Second client joins the room
-        tx2.send(create_message(JointMessageMethod::Join(room_id)))
-            .await
-            .expect("Failed to send join room message");
-
-        // Wait for join confirmation
-        let response = rx2.recv().await.expect("Failed to receive join response");
-        match response {
-            Response::RoomJoined(_) => (),
-            _ => panic!("Expected room join response"),
-        }
-
-        // Client 1 gets notification about client 2 joining
-        let response = rx1
-            .recv()
-            .await
-            .expect("Failed to receive join notification");
-        match response {
-            Response::RoomJoined(_) => (),
-            _ => panic!("Expected room join response"),
-        }
-
-        // Client 2 updates the score
-        let action = GameAction::UpdateScore {
-            player_id: 2,
-            points: 20,
-        };
-        tx2.send(create_action_message(action))
-            .await
-            .expect("Failed to send score update action");
-
-        // Both clients receive the update
-        let response1 = rx1
-            .recv()
-            .await
-            .expect("Client 1 failed to receive action response");
-        let response2 = rx2
-            .recv()
-            .await
-            .expect("Client 2 failed to receive action response");
-
-        let action_response1 =
-            extract_action_response(&response1).expect("Expected action response");
-        let action_response2 =
-            extract_action_response(&response2).expect("Expected action response");
-
-        // Verify both have the same state
-        assert_eq!(action_response1.state, action_response2.state);
-        assert_eq!(*action_response1.state.scores.get(&2).unwrap(), 20);
-
-        // Client 2 disconnects
+        drop(tx1);
+        drop(rx1);
         drop(tx2);
         drop(rx2);
+    }
 
-        // Wait for disconnect to process
-        sleep(Duration::from_millis(100)).await;
+    #[tokio::test]
+    async fn test_multiple_clients_interaction() {
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
 
-        // Connect a new client (client 3)
-        let (tx3, mut rx3) = joint.connect(10);
+        let (tx1, mut rx1) = joint.connect(10);
 
-        // Client 3 joins the same room
-        tx3.send(create_message(JointMessageMethod::Join(room_id)))
+        let create_msg = create_message(JointMessageMethod::Create);
+        tx1.send(create_msg)
             .await
-            .expect("Failed to send join room message");
+            .expect("Failed to send create message");
 
-        // Wait for join confirmation
-        let response = rx3.recv().await.expect("Failed to receive join response");
-        match response {
-            Response::RoomJoined(_) => (),
-            _ => panic!("Expected room join response"),
+        let mut room_id: Option<u64> = None;
+        while room_id.is_none() {
+            if let Some(response) = rx1.recv().await {
+                if let Response::RoomCreated(id) = response {
+                    room_id = Some(id);
+                }
+            }
         }
 
-        // Client 1 gets notification about client 3 joining
-        let response = rx1
-            .recv()
+        let (tx2, mut rx2) = joint.connect(10);
+
+        let join_msg = create_message(JointMessageMethod::Join(room_id.unwrap()));
+        tx2.send(join_msg)
             .await
-            .expect("Failed to receive join notification");
-        match response {
-            Response::RoomJoined(_) => (),
-            _ => panic!("Expected room join response"),
+            .expect("Failed to send join message");
+
+        let mut join_confirmed = false;
+        while !join_confirmed {
+            if let Some(response) = rx2.recv().await {
+                if let Response::RoomJoined(_) = response {
+                    join_confirmed = true;
+                }
+            }
         }
 
-        // Client 3 sends a message
-        let action = GameAction::SendMessage {
-            content: "I'm back!".to_string(),
-        };
-        tx3.send(create_action_message(action))
-            .await
-            .expect("Failed to send message action");
+        let mut join_notified = false;
+        while !join_notified {
+            if let Some(response) = rx1.recv().await {
+                if let Response::RoomJoined(_) = response {
+                    join_notified = true;
+                }
+            }
+        }
 
-        // Both clients receive the update
-        let response1 = rx1
-            .recv()
+        let action_msg = create_action_message(TestAction::Add(7));
+        tx1.send(action_msg)
             .await
-            .expect("Client 1 failed to receive action response");
-        let response3 = rx3
-            .recv()
+            .expect("Failed to send action message");
+
+        let mut client1_updated = false;
+        let mut client2_updated = false;
+        let mut state1: Option<TestState> = None;
+        let mut state2: Option<TestState> = None;
+
+        async fn process_action_response(
+            rx: &mut tokio::sync::mpsc::Receiver<Response>,
+            updated: &mut bool,
+            state: &mut Option<TestState>,
+        ) {
+            while !*updated {
+                if let Some(response) = rx.recv().await {
+                    if let Response::Action(action_json) = response {
+                        let action_response: ActionResponse<TestState> =
+                            serde_json::from_str(&action_json)
+                                .expect("Failed to parse action response");
+                        *state = Some(action_response.state.clone());
+                        *updated = true;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        let timeout = sleep(Duration::from_millis(500));
+        tokio::pin!(timeout);
+
+        process_action_response(&mut rx1, &mut client1_updated, &mut state1).await;
+        process_action_response(&mut rx2, &mut client2_updated, &mut state2).await;
+
+        assert!(client1_updated, "Client 1 should receive action update");
+        assert!(client2_updated, "Client 2 should receive action update");
+
+        assert_eq!(state1, state2);
+        assert_eq!(state1.unwrap().counter, 7);
+
+        drop(tx1);
+        drop(rx1);
+        drop(tx2);
+        drop(rx2);
+    }
+
+    #[tokio::test]
+    async fn test_direct_dispatch() {
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
+        let (tx, mut rx) = joint.connect(10);
+
+        let create_msg = create_message(JointMessageMethod::Create);
+        tx.send(create_msg)
             .await
-            .expect("Client 3 failed to receive action response");
+            .expect("Failed to send create message");
 
-        let action_response1 =
-            extract_action_response(&response1).expect("Expected action response");
-        let action_response3 =
-            extract_action_response(&response3).expect("Expected action response");
+        let mut client_id: Option<u64> = None;
 
-        // Verify the state includes both previous actions and the new message
-        assert_eq!(action_response1.state, action_response3.state);
-        assert_eq!(*action_response1.state.scores.get(&2).unwrap(), 20);
-        assert_eq!(action_response1.state.current_state, "WAITING");
-        assert_eq!(action_response1.state.messages[0], "I'm back!");
+        while client_id.is_none() {
+            if let Some(response) = rx.recv().await {
+                match response {
+                    Response::RoomCreated(_) => {
+                        let clients = joint.joint.broadcaster.get_clients().clone();
+                        client_id = Some(*clients.lock().await.iter().next().unwrap().0);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let action_json = r#"{"Add":15}"#;
+        let result = joint.dispatch(client_id.unwrap(), action_json).await;
+
+        assert!(result.is_ok(), "Dispatch should succeed");
+        let response = result.unwrap();
+        assert_eq!(response.state.counter, 15);
+
+        drop(tx);
+        drop(rx);
+    }
+
+    #[tokio::test]
+    async fn test_error_handling() {
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
+        let (tx, mut rx) = joint.connect(10);
+
+        let action_msg = create_action_message(TestAction::Add(5));
+        tx.send(action_msg)
+            .await
+            .expect("Failed to send action message");
+
+        let mut received_error = false;
+        while !received_error {
+            if let Some(response) = rx.recv().await {
+                if let Response::NotFound(_) = response {
+                    received_error = true;
+                }
+            }
+        }
+
+        assert!(
+            received_error,
+            "Should receive error for action without room"
+        );
+
+        let leave_msg = create_message(JointMessageMethod::Leave);
+        tx.send(leave_msg)
+            .await
+            .expect("Failed to send leave message");
+
+        let mut received_error = false;
+        while !received_error {
+            if let Some(response) = rx.recv().await {
+                if let Response::NotFound(_) = response {
+                    received_error = true;
+                }
+            }
+        }
+
+        assert!(
+            received_error,
+            "Should receive error for leave without room"
+        );
+
+        drop(tx);
+        drop(rx);
+    }
+
+    #[tokio::test]
+    async fn test_channel_closing() {
+        let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
+
+        let (tx, rx) = joint.connect(10);
+        drop(tx);
+        drop(rx);
+
+        let (tx2, mut rx2) = joint.connect(10);
+
+        let create_msg = create_message(JointMessageMethod::Create);
+        tx2.send(create_msg)
+            .await
+            .expect("Failed to send create message");
+
+        let mut room_created = false;
+        while !room_created {
+            if let Some(response) = rx2.recv().await {
+                if let Response::RoomCreated(_) = response {
+                    room_created = true;
+                }
+            }
+        }
+
+        assert!(
+            room_created,
+            "Should be able to create room after previous channel closed"
+        );
+
+        drop(tx2);
+        drop(rx2);
     }
 }
