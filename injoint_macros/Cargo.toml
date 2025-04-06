@@ -1,6 +1,6 @@
 [package]
 name = "injoint-macros"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "injoint-macros is helper library for injoint to generate reducer and action boilerplate code"
 repository = "https://github.com/PixelQuasar/injoint"
