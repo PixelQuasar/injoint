@@ -98,7 +98,7 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         &self,
         client_id: u64,
         action: &str,
-    ) -> Result<ActionResponse<R::Response>, String> {
+    ) -> Result<ActionResponse<R::State>, String> {
         self.joint.dispatch(client_id, action).await
     }
 }

@@ -189,7 +189,11 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl injoint::dispatcher::Dispatchable for #reducer_name {
             type Action = #enum_name;
-            type Response = #state_struct;
+            type State = #state_struct;
+
+            fn get_state(&self) -> #state_struct {
+                self.state.clone()
+            }
 
             async fn dispatch(
                 &mut self,

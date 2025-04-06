@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
+use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,7 +12,6 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
-use serde_json::json;
 
 #[derive(Serialize, Debug)]
 struct ChatRequest {
@@ -119,14 +120,12 @@ async fn main() -> Result<()> {
 }
 
 async fn join_room(
-    writer: Arc<
-        Mutex<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
-    >,
+    writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
 ) -> Result<()> {
     let join_request = ChatRequest {
         message: RequestMessage {
             msg_type: "Join".to_string(),
-            data: Some(json!(0)), 
+            data: Some(json!(0)),
         },
         client_token: "0".to_string(),
     };
@@ -141,9 +140,7 @@ async fn join_room(
     Ok(())
 }
 async fn create_room(
-    writer: Arc<
-        Mutex<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
-    >,
+    writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
 ) -> Result<()> {
     let create_request = ChatRequest {
         message: RequestMessage {
@@ -164,9 +161,7 @@ async fn create_room(
 }
 
 async fn identify_user(
-    writer: Arc<
-        Mutex<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
-    >,
+    writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     username: &str,
 ) -> Result<()> {
     let action_data = serde_json::json!({
@@ -194,9 +189,7 @@ async fn identify_user(
 }
 
 async fn send_message(
-    writer: Arc<
-        Mutex<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
-    >,
+    writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     message: &str,
 ) -> Result<()> {
     let action_data = serde_json::json!({
@@ -224,9 +217,7 @@ async fn send_message(
 }
 
 async fn leave_room(
-    writer: Arc<
-        Mutex<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
-    >,
+    writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
 ) -> Result<()> {
     let leave_request = ChatRequest {
         message: RequestMessage {
@@ -248,9 +239,7 @@ async fn leave_room(
 
 async fn handle_server_message(
     message: &str,
-    writer: &Arc<
-        Mutex<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
-    >,
+    writer: &Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
 ) -> Result<()> {
     let response: ChatResponse = match serde_json::from_str(message) {
         Ok(r) => r,

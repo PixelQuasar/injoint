@@ -7,6 +7,7 @@ use std::fmt::Debug;
 pub enum ResponseStatus {
     RoomCreated,
     RoomJoined,
+    StateSent,
     Action,
     RoomLeft,
     ServerError,
@@ -18,6 +19,7 @@ pub enum ResponseStatus {
 pub enum Response {
     RoomCreated(u64),
     RoomJoined(u64),
+    StateSent(String),
     Action(String), // maybe this should be a generic type that serializable?
     RoomLeft(u64),
     ServerError(String),
@@ -46,6 +48,15 @@ impl serde::ser::Serialize for Response {
             Response::RoomJoined(client_id) => {
                 s.serialize_field(STATUS_STR, &ResponseStatus::RoomJoined)?;
                 s.serialize_field(MESSAGE_STR, client_id)?;
+            }
+            Response::StateSent(payload) => {
+                s.serialize_field(STATUS_STR, &ResponseStatus::StateSent)?;
+                match serde_json::from_str::<Value>(payload) {
+                    Ok(json_value) => s.serialize_field("message", &json_value)?,
+                    Err(_) => {
+                        s.serialize_field("message", payload)?;
+                    }
+                }
             }
             Response::Action(payload) => {
                 s.serialize_field(STATUS_STR, &ResponseStatus::Action)?;
@@ -126,35 +137,35 @@ impl serde::ser::Serialize for RoomResponse {
 }
 
 #[derive(Debug)]
-pub struct ErrorResponse {
+pub struct ClientResponse {
     pub client: u64,
     pub response: Response,
 }
 
-impl ErrorResponse {
+impl ClientResponse {
     pub fn server_error(client: u64, message: String) -> Self {
-        ErrorResponse {
+        ClientResponse {
             client,
             response: Response::ServerError(message),
         }
     }
 
     pub fn client_error(client: u64, message: String) -> Self {
-        ErrorResponse {
+        ClientResponse {
             client,
             response: Response::ClientError(message),
         }
     }
 
     pub fn not_found(client: u64, message: String) -> Self {
-        ErrorResponse {
+        ClientResponse {
             client,
             response: Response::NotFound(message),
         }
     }
 }
 
-impl serde::ser::Serialize for ErrorResponse {
+impl serde::ser::Serialize for ClientResponse {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
