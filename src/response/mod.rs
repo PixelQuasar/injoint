@@ -1,3 +1,5 @@
+mod test;
+
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use serde_json::Value;

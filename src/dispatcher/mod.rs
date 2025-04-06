@@ -1,8 +1,10 @@
+mod test;
+
 use crate::utils::types::{Broadcastable, Receivable};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ActionResponse<S: Serialize> {
     pub status: String,
     pub state: S,

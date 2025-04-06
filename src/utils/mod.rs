@@ -1,3 +1,4 @@
+mod test;
 pub mod types;
 
 use serde::{de::DeserializeOwned, Serialize};

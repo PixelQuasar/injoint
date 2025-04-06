@@ -1,3 +1,5 @@
+mod test;
+
 use serde::Deserialize;
 use std::fmt::Debug;
 

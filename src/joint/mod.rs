@@ -15,7 +15,7 @@ where
     Sink: SinkAdapter + Unpin,
     R: Dispatchable + Send,
 {
-    broadcaster: Broadcaster<Sink, R>,
+    pub(crate) broadcaster: Broadcaster<Sink, R>,
 }
 
 impl<R, Sink> AbstractJoint<R, Sink>

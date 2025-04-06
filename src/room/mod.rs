@@ -16,3 +16,21 @@ pub struct Room<R> {
     pub status: RoomStatus,
     pub reducer: Arc<Mutex<R>>,
 }
+
+impl<R> Room<R> {
+    pub fn new(
+        id: u64,
+        owner_id: u64,
+        client_ids: HashSet<u64>,
+        status: RoomStatus,
+        reducer: Arc<Mutex<R>>,
+    ) -> Self {
+        Room {
+            id,
+            owner_id,
+            client_ids,
+            status,
+            reducer,
+        }
+    }
+}

@@ -20,3 +20,4 @@ rand = "0.9.0"
 async-trait = "0.1.88"
 axum = { version = "0.8.1", features = ["ws"] }
 injoint-macros = "0.0.4"
+tower = "0.5.2"

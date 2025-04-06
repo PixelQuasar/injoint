@@ -38,7 +38,10 @@ where
     }
 
     // handles create room event
-    async fn handle_create(&self, client_id: u64) -> Result<RoomResponse, ClientResponse> {
+    pub(crate) async fn handle_create(
+        &self,
+        client_id: u64,
+    ) -> Result<RoomResponse, ClientResponse> {
         let mut clients = self.clients.lock().await;
         let client = clients
             .get_mut(&client_id)
@@ -72,7 +75,7 @@ where
     }
 
     // handles join room event
-    async fn handle_join(
+    pub(crate) async fn handle_join(
         &self,
         client_id: u64,
         room_id: u64,
@@ -105,7 +108,7 @@ where
     }
 
     // handles dispatchable action event
-    async fn handle_action(
+    pub(crate) async fn handle_action(
         &self,
         client_id: u64,
         action: R::Action,
@@ -136,7 +139,10 @@ where
     }
 
     // handles user leave event
-    async fn handle_leave(&self, client_id: u64) -> Result<RoomResponse, ClientResponse> {
+    pub(crate) async fn handle_leave(
+        &self,
+        client_id: u64,
+    ) -> Result<RoomResponse, ClientResponse> {
         let mut clients = self.clients.lock().await;
         let client = clients
             .get_mut(&client_id)
@@ -167,44 +173,39 @@ where
     }
 
     // processes abstract event
-    async fn process_event(
+    pub(crate) async fn process_event(
         &self,
         client_id: u64,
         event: JointMessage,
     ) -> Result<RoomResponse, ClientResponse> {
-        // Decouple client lookup from subsequent logic to reduce scope of mutable borrow
-        let clients = self.clients.lock().await;
-        let client_exists = clients.contains_key(&client_id);
-        if !client_exists {
-            return Err(ClientResponse::not_found(
-                client_id,
-                "Client not found".to_string(),
-            ));
+        {
+            let clients = self.clients.lock().await;
+            let client_exists = clients.contains_key(&client_id);
+            if !client_exists {
+                return Err(ClientResponse::not_found(
+                    client_id,
+                    "Client not found".to_string(),
+                ));
+            }
         }
-        drop(clients);
 
-        // Handle events based on the message type
         match event.message {
             JointMessageMethod::Create => {
                 let result = self.handle_create(client_id).await;
-
                 if let Ok(room_response) = &result {
                     let _ = self
                         .insert_client_to_room(client_id, room_response.room)
                         .await;
                 }
-
                 result
             }
             JointMessageMethod::Join(room_id) => {
                 let result = self.handle_join(client_id, room_id).await;
-
                 if let Ok(room_response) = &result {
                     let _ = self
                         .insert_client_to_room(client_id, room_response.room)
                         .await;
                 }
-
                 result
             }
             JointMessageMethod::Action(raw_action) => {
@@ -212,7 +213,8 @@ where
                     ClientResponse::server_error(client_id, "Invalid action".to_string())
                 })?;
 
-                let clients = self.clients.lock().await;
+                let clients = self.clients.clone();
+                let clients = clients.lock().await;
                 let client = clients.get(&client_id).ok_or_else(|| {
                     ClientResponse::not_found(client_id, "Client not found".to_string())
                 })?;
@@ -220,8 +222,10 @@ where
                 let room_id = client.room_id.ok_or_else(|| {
                     ClientResponse::not_found(client_id, "Client not in room".to_string())
                 })?;
+                drop(clients);
 
-                let rooms = self.rooms.lock().await;
+                let rooms = self.rooms.clone();
+                let rooms = rooms.lock().await;
                 let room = rooms.get(&room_id).ok_or_else(|| {
                     ClientResponse::not_found(client_id, "Room not found".to_string())
                 })?;
@@ -234,7 +238,7 @@ where
     }
 
     // broadcasts response state to all clients in room
-    async fn react_on_message(&self, room_id: u64, response: Response) {
+    pub(crate) async fn react_on_message(&self, room_id: u64, response: Response) {
         let rooms = self.rooms.lock().await;
         let room = rooms.get(&room_id).ok_or("Room not found".to_string());
 
@@ -254,7 +258,7 @@ where
         }
     }
 
-    async fn react_with_error(&self, client_id: u64, error: Response) {
+    pub(crate) async fn react_with_error(&self, client_id: u64, error: Response) {
         let mut connections = self.connections.lock().await;
         if let Some(sender) = connections.get_mut(&client_id) {
             let _ = sender.send(error).await;
@@ -327,7 +331,11 @@ where
         reducer_guard.dispatch(client_id, parsed_action).await
     }
 
-    async fn insert_client_to_room(&self, client_id: u64, room_id: u64) -> Result<(), String> {
+    pub(crate) async fn insert_client_to_room(
+        &self,
+        client_id: u64,
+        room_id: u64,
+    ) -> Result<(), String> {
         let mut clients = self.clients.lock().await;
         let client = clients
             .get_mut(&client_id)
