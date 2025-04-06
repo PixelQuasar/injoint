@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::io;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
+#[derive(Clone)]
 pub struct MPSCSink {
     sender: Sender<Response>,
 }

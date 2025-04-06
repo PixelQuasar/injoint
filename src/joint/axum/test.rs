@@ -21,7 +21,6 @@ mod tests {
     use tokio::sync::Mutex;
     use tower::ServiceExt;
 
-    // Simple test action and state for testing
     #[derive(Debug, Clone, Serialize, Deserialize)]
     enum TestAction {
         Increment,
@@ -96,12 +95,10 @@ mod tests {
         }
     }
 
-    // Helper function to create a test router with WebSocket endpoint
     async fn setup_test_router() -> (Router, SocketAddr) {
         let joint = AxumWSJoint::new(TestReducer::default());
         let router = joint.attach_router("/ws", Router::new());
 
-        // Find available port
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -112,7 +109,6 @@ mod tests {
     async fn test_websocket_upgrade() {
         let (app, _addr) = setup_test_router().await;
 
-        // Create a WebSocket upgrade request
         let request = Request::builder()
             .uri("/ws")
             .header("connection", "upgrade")
@@ -122,16 +118,13 @@ mod tests {
             .body(Body::empty())
             .unwrap();
 
-        // Call the application with our request
         let response = app.oneshot(request).await.unwrap();
 
-        // Check that we got a successful upgrade response
         assert_eq!(response.status(), 426);
     }
 
     #[tokio::test]
     async fn test_joint_creation_and_dispatch() {
-        // Create a joint
         let reducer = TestReducer::default();
         let joint = AxumWSJoint::new(reducer);
 
@@ -149,18 +142,15 @@ mod tests {
         );
         drop(rooms);
 
-        // Test the dispatch method
         let clients = joint.joint.broadcaster.get_clients().clone();
         let mut clients = clients.lock().await;
         clients.insert(1, Client::new(1, Some(1), String::new(), String::new()));
         drop(clients);
 
-        // Test the dispatch method
         let client_id = 1;
         let action = r#"{"Increment":null}"#;
         let result = joint.dispatch(client_id, action).await;
 
-        // Verify the result
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.status, "success");

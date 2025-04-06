@@ -6,12 +6,10 @@ mod tests {
 
     #[test]
     fn test_joint_message_creation() {
-        // Test Create message
         let message = JointMessage::new(JointMessageMethod::Create, "client123".to_string());
         assert_eq!(message.client_token, "client123");
         assert!(matches!(message.message, JointMessageMethod::Create));
 
-        // Test Join message
         let room_id = 42;
         let message = JointMessage::new(JointMessageMethod::Join(room_id), "client456".to_string());
         assert_eq!(message.client_token, "client456");
@@ -21,12 +19,10 @@ mod tests {
             panic!("Expected Join message");
         }
 
-        // Test Leave message
         let message = JointMessage::new(JointMessageMethod::Leave, "client789".to_string());
         assert_eq!(message.client_token, "client789");
         assert!(matches!(message.message, JointMessageMethod::Leave));
 
-        // Test Action message
         let action_data = r#"{"command":"increment"}"#.to_string();
         let message = JointMessage::new(
             JointMessageMethod::Action(action_data.clone()),
@@ -42,7 +38,6 @@ mod tests {
 
     #[test]
     fn test_joint_message_deserialization() {
-        // Test deserializing Create message
         let json_str = r#"
         {
             "message": {
@@ -55,7 +50,6 @@ mod tests {
         assert_eq!(message.client_token, "client123");
         assert!(matches!(message.message, JointMessageMethod::Create));
 
-        // Test deserializing Join message
         let json_str = r#"
         {
             "message": {
@@ -73,7 +67,6 @@ mod tests {
             panic!("Expected Join message");
         }
 
-        // Test deserializing Leave message
         let json_str = r#"
         {
             "message": {
@@ -86,7 +79,6 @@ mod tests {
         assert_eq!(message.client_token, "client789");
         assert!(matches!(message.message, JointMessageMethod::Leave));
 
-        // Test deserializing Action message
         let json_str = r#"
         {
             "message": {
@@ -107,7 +99,6 @@ mod tests {
 
     #[test]
     fn test_joint_message_clone() {
-        // Test cloning a message
         let original = JointMessage::new(
             JointMessageMethod::Action("test".to_string()),
             "client".to_string(),

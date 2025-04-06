@@ -7,7 +7,6 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
 
-    // Mock implementation of SinkAdapter for testing
     struct MockSink {
         responses: Arc<Mutex<Vec<Response>>>,
     }
@@ -23,7 +22,6 @@ mod tests {
         }
     }
 
-    // Mock implementation of StreamAdapter for testing
     struct MockStream {
         messages: Vec<JointMessage>,
         index: usize,
@@ -44,22 +42,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_sink_adapter() {
-        // Create a mock sink
         let responses = Arc::new(Mutex::new(Vec::new()));
         let mut sink = MockSink {
             responses: responses.clone(),
         };
 
-        // Test sending a response
         let response = Response::RoomCreated(123);
         let result = sink.send(response.clone()).await;
         assert!(result.is_ok());
 
-        // Verify the response was stored
         let stored_responses = responses.lock().unwrap();
         assert_eq!(stored_responses.len(), 1);
 
-        // Match on the stored response type
         match &stored_responses[0] {
             Response::RoomCreated(id) => assert_eq!(*id, 123),
             _ => panic!("Expected RoomCreated response"),
@@ -68,7 +62,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_stream_adapter() {
-        // Create messages for testing
         let messages = vec![
             JointMessage {
                 client_token: "1".to_string(),
@@ -84,13 +77,11 @@ mod tests {
             },
         ];
 
-        // Create a mock stream
         let mut stream = MockStream {
             messages: messages.clone(),
             index: 0,
         };
 
-        // Test reading messages
         let message1 = stream.next().await.unwrap();
         assert!(matches!(message1.message, JointMessageMethod::Create));
 
@@ -104,7 +95,6 @@ mod tests {
         let message3 = stream.next().await.unwrap();
         assert!(matches!(message3.message, JointMessageMethod::Leave));
 
-        // Test end of stream behavior
         let result = stream.next().await;
         assert!(result.is_err());
     }

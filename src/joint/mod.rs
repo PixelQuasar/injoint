@@ -4,24 +4,26 @@ use crate::connection::{SinkAdapter, StreamAdapter};
 use crate::dispatcher::{ActionResponse, Dispatchable};
 use rand::Rng;
 
+#[cfg(not(tarpaulin))]
 pub mod axum;
 pub mod mpsc;
 mod test;
+#[cfg(not(tarpaulin))]
 pub mod ws;
 
 // Root abstract struct that provides all publish-subscribe functionality
 pub struct AbstractJoint<R, Sink>
 where
-    Sink: SinkAdapter + Unpin,
-    R: Dispatchable + Send,
+    Sink: SinkAdapter + Unpin + Clone,
+    R: Dispatchable + Send + Clone,
 {
     pub(crate) broadcaster: Broadcaster<Sink, R>,
 }
 
 impl<R, Sink> AbstractJoint<R, Sink>
 where
-    Sink: SinkAdapter + Unpin,
-    R: Dispatchable + Send,
+    Sink: SinkAdapter + Unpin + Clone,
+    R: Dispatchable + Send + Clone,
 {
     pub fn new(default_reducer: R) -> Self {
         AbstractJoint {

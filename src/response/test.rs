@@ -6,7 +6,6 @@ mod tests {
 
     #[test]
     fn test_response_serialization() {
-        // Test RoomCreated response
         let response = Response::RoomCreated(123);
         let serialized = serde_json::to_value(&response).unwrap();
         assert_eq!(
@@ -17,7 +16,6 @@ mod tests {
             })
         );
 
-        // Test RoomJoined response
         let response = Response::RoomJoined(456);
         let serialized = serde_json::to_value(&response).unwrap();
         assert_eq!(
@@ -28,7 +26,6 @@ mod tests {
             })
         );
 
-        // Test StateSent response
         let state_json = r#"{"value": 42, "name": "test"}"#;
         let response = Response::StateSent(state_json.to_string());
         let serialized = serde_json::to_value(&response).unwrap();
@@ -40,7 +37,6 @@ mod tests {
             })
         );
 
-        // Test Action response
         let action_json = r#"{"type": "increment", "value": 5}"#;
         let response = Response::Action(action_json.to_string());
         let serialized = serde_json::to_value(&response).unwrap();
@@ -52,7 +48,6 @@ mod tests {
             })
         );
 
-        // Test error responses
         let response = Response::ServerError("Server error".to_string());
         let serialized = serde_json::to_value(&response).unwrap();
         assert_eq!(
@@ -66,7 +61,6 @@ mod tests {
 
     #[test]
     fn test_room_response() {
-        // Test create_room factory method
         let room_id = 123;
         let response = RoomResponse::create_room(room_id);
         assert_eq!(response.room, room_id);
@@ -76,7 +70,6 @@ mod tests {
             panic!("Expected RoomCreated response");
         }
 
-        // Test serialization
         let serialized = serde_json::to_value(&response).unwrap();
         assert_eq!(
             serialized,
@@ -89,7 +82,6 @@ mod tests {
             })
         );
 
-        // Test join_room
         let client_id = 456;
         let response = RoomResponse::join_room(room_id, client_id);
         if let Response::RoomJoined(id) = response.response {
@@ -98,7 +90,6 @@ mod tests {
             panic!("Expected RoomJoined response");
         }
 
-        // Test action
         let payload = r#"{"value": 42}"#.to_string();
         let response = RoomResponse::action(room_id, payload.clone());
         if let Response::Action(p) = &response.response {
@@ -107,7 +98,6 @@ mod tests {
             panic!("Expected Action response");
         }
 
-        // Test leave_room
         let response = RoomResponse::leave_room(room_id, client_id);
         if let Response::RoomLeft(id) = response.response {
             assert_eq!(id, client_id);
@@ -118,7 +108,6 @@ mod tests {
 
     #[test]
     fn test_client_response() {
-        // Test server_error factory method
         let client_id = 123;
         let message = "Server error message".to_string();
         let response = ClientResponse::server_error(client_id, message.clone());
@@ -129,7 +118,6 @@ mod tests {
             panic!("Expected ServerError response");
         }
 
-        // Test serialization
         let serialized = serde_json::to_value(&response).unwrap();
         assert_eq!(
             serialized,
@@ -142,7 +130,6 @@ mod tests {
             })
         );
 
-        // Test client_error
         let message = "Client error message".to_string();
         let response = ClientResponse::client_error(client_id, message.clone());
         if let Response::ClientError(msg) = &response.response {
@@ -151,7 +138,6 @@ mod tests {
             panic!("Expected ClientError response");
         }
 
-        // Test not_found
         let message = "Not found message".to_string();
         let response = ClientResponse::not_found(client_id, message.clone());
         if let Response::NotFound(msg) = &response.response {

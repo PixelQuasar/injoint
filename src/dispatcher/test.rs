@@ -6,7 +6,6 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use std::future::Future;
 
-    // Define a simple Action type for testing
     #[derive(Debug, Clone, Serialize, Deserialize)]
     enum TestAction {
         Increment,
@@ -16,7 +15,6 @@ mod tests {
 
     impl Receivable for TestAction {}
 
-    // Define a simple State type for testing
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
     struct TestState {
         counter: i32,
@@ -25,7 +23,6 @@ mod tests {
 
     impl Broadcastable for TestState {}
 
-    // Implement a test reducer
     #[derive(Clone, Default)]
     struct TestReducer {
         state: TestState,
@@ -81,13 +78,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_action_response_serialization() {
-        // Create a test state
         let state = TestState {
             counter: 42,
             messages: vec!["hello".to_string()],
         };
 
-        // Create an action response
         let response = ActionResponse {
             status: "success".to_string(),
             state: state.clone(),
@@ -95,10 +90,8 @@ mod tests {
             data: "Test data".to_string(),
         };
 
-        // Serialize the response
         let json = serde_json::to_string(&response).unwrap();
 
-        // Deserialize and verify
         let deserialized: ActionResponse<TestState> = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.status, "success");
         assert_eq!(deserialized.state, state);
@@ -108,25 +101,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatchable_dispatch() {
-        // Create a test reducer
         let mut reducer = TestReducer::default();
 
-        // Test initial state
         assert_eq!(reducer.get_state().counter, 0);
         assert_eq!(reducer.get_state().messages.len(), 0);
 
-        // Test Increment action
         let client_id = 1;
         let result = reducer.dispatch(client_id, TestAction::Increment).await;
         assert!(result.is_ok());
         assert_eq!(reducer.get_state().counter, 1);
 
-        // Test Add action
         let result = reducer.dispatch(client_id, TestAction::Add(10)).await;
         assert!(result.is_ok());
         assert_eq!(reducer.get_state().counter, 11);
 
-        // Test Echo action
         let message = "Hello, world!".to_string();
         let result = reducer
             .dispatch(client_id, TestAction::Echo(message.clone()))
@@ -135,7 +123,6 @@ mod tests {
         assert_eq!(reducer.get_state().messages.len(), 1);
         assert_eq!(reducer.get_state().messages[0], message);
 
-        // Check response details
         let response = result.unwrap();
         assert_eq!(response.status, "success");
         assert_eq!(response.author, client_id);
@@ -145,30 +132,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatchable_extern_dispatch() {
-        // Create a test reducer
         let mut reducer = TestReducer::default();
 
-        // Test Increment action via extern_dispatch
         let client_id = 2;
         let action_json = r#"{"Increment":null}"#;
         let result = reducer.extern_dispatch(client_id, action_json).await;
         assert!(result.is_ok());
         assert_eq!(reducer.get_state().counter, 1);
 
-        // Test Add action via extern_dispatch
         let action_json = r#"{"Add":5}"#;
         let result = reducer.extern_dispatch(client_id, action_json).await;
         assert!(result.is_ok());
         assert_eq!(reducer.get_state().counter, 6);
 
-        // Test Echo action via extern_dispatch
         let action_json = r#"{"Echo":"Hello from JSON"}"#;
         let result = reducer.extern_dispatch(client_id, action_json).await;
         assert!(result.is_ok());
         assert_eq!(reducer.get_state().messages.len(), 1);
         assert_eq!(reducer.get_state().messages[0], "Hello from JSON");
 
-        // Test invalid JSON
         let invalid_json = r#"{"InvalidAction":null}"#;
         let result = reducer.extern_dispatch(client_id, invalid_json).await;
         assert!(result.is_err());

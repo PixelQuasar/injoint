@@ -15,7 +15,6 @@ mod tests {
     use std::sync::{Arc, Mutex as StdMutex};
     use tokio::sync::Mutex;
 
-    // Mock SinkAdapter for testing
     #[derive(Clone)]
     struct MockSink {
         responses: Arc<StdMutex<Vec<Response>>>,
@@ -34,7 +33,6 @@ mod tests {
 
     impl Unpin for MockSink {}
 
-    // Mock StreamAdapter for testing
     struct MockStream {
         messages: Vec<JointMessage>,
         index: usize,
@@ -55,7 +53,6 @@ mod tests {
 
     impl Unpin for MockStream {}
 
-    // Test action and state
     #[derive(Debug, Clone, Deserialize, Serialize)]
     enum TestAction {
         Increment,
@@ -73,7 +70,6 @@ mod tests {
 
     impl Broadcastable for TestState {}
 
-    // Test reducer implementing Dispatchable
     #[derive(Clone, Default)]
     struct TestReducer {
         state: TestState,
@@ -134,7 +130,6 @@ mod tests {
         }
     }
 
-    // Helper functions
     fn create_client(id: u64) -> Client {
         Client::new(id, None, format!("User{}", id), String::new())
     }
@@ -160,14 +155,12 @@ mod tests {
         responses.last().cloned()
     }
 
-    // TESTS
 
     #[tokio::test]
     async fn test_broadcaster_creation() {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Verify initial state
         assert_eq!(broadcaster.get_clients().clone().lock().await.len(), 0);
         assert_eq!(broadcaster.get_rooms().clone().lock().await.len(), 0);
         assert_eq!(broadcaster.get_connections().clone().lock().await.len(), 0);
@@ -183,10 +176,8 @@ mod tests {
             responses: responses.clone(),
         };
 
-        // Add client
         broadcaster.add_client_connection(client, sink).await;
 
-        // Verify client was added
         {
             let clients = broadcaster.get_clients();
             let clients = clients.lock().await;
@@ -199,10 +190,8 @@ mod tests {
             assert!(connections.contains_key(&1));
         }
 
-        // Remove client
         broadcaster.remove_client_connection(1).await;
 
-        // Verify client was removed
         {
             let clients = broadcaster.get_clients();
             let clients = clients.lock().await;
@@ -224,18 +213,14 @@ mod tests {
             responses: responses.clone(),
         };
 
-        // Add client
         broadcaster.add_client_connection(client, sink).await;
 
-        // Create room
         let result = broadcaster.handle_create(1).await;
 
-        // Verify success
         assert!(result.is_ok());
         let room_response = result.unwrap();
         assert!(matches!(room_response.response, Response::RoomCreated(_)));
 
-        // Verify room was created with reducer
         {
             let rooms = broadcaster.get_rooms();
             let rooms = rooms.lock().await;
@@ -245,7 +230,6 @@ mod tests {
             assert_eq!(room.owner_id, 1);
             assert!(room.client_ids.contains(&1));
 
-            // Verify client is in room
             let clients = broadcaster.get_clients();
             let clients = clients.lock().await;
             let client = clients.get(&1).unwrap();
@@ -258,7 +242,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add two clients
         let client1 = create_client(1);
         let responses1 = Arc::new(StdMutex::new(Vec::new()));
         let sink1 = MockSink {
@@ -274,7 +257,6 @@ mod tests {
         broadcaster.add_client_connection(client1, sink1).await;
         broadcaster.add_client_connection(client2, sink2).await;
 
-        // Client 1 creates room
         let create_result = broadcaster.handle_create(1).await;
         assert!(create_result.is_ok());
         let room_id = match create_result.unwrap().response {
@@ -282,18 +264,14 @@ mod tests {
             _ => panic!("Expected RoomCreated response"),
         };
 
-        // Clear response buffer
         responses1.lock().unwrap().clear();
 
-        // Client 2 joins room
         let join_result = broadcaster.handle_join(2, room_id).await;
 
-        // Verify success
         assert!(join_result.is_ok());
         let room_response = join_result.unwrap();
         assert!(matches!(room_response.response, Response::RoomJoined(_)));
 
-        // Verify both clients are in room
         {
             let rooms = broadcaster.get_rooms();
             let rooms = rooms.lock().await;
@@ -314,7 +292,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add client
         let client = create_client(1);
         let responses = Arc::new(StdMutex::new(Vec::new()));
         let sink = MockSink {
@@ -323,7 +300,6 @@ mod tests {
 
         broadcaster.add_client_connection(client, sink).await;
 
-        // Create room
         let create_result = broadcaster.handle_create(1).await;
         assert!(create_result.is_ok());
         let room_id = match create_result.unwrap().response {
@@ -331,41 +307,34 @@ mod tests {
             _ => panic!("Expected RoomCreated response"),
         };
 
-        // Clear response buffer
         responses.lock().unwrap().clear();
 
-        // Get room reducer
         let room_reducer = {
             let rooms = broadcaster.get_rooms();
             let rooms = rooms.lock().await;
             rooms.get(&room_id).unwrap().reducer.clone()
         };
 
-        // Perform action
         let action = TestAction::Add(5);
         let action_result = broadcaster
             .handle_action(1, action, room_reducer.clone())
             .await;
 
-        // Verify success
         assert!(action_result.is_ok());
         let room_response = action_result.unwrap();
         assert!(matches!(room_response.response, Response::Action(_)));
 
-        // Verify action changed state
         {
             let reducer = room_reducer.lock().await;
             assert_eq!(reducer.get_state().counter, 5);
         }
 
-        // Another action
         let action = TestAction::Message("Hello".to_string());
         let action_result = broadcaster
             .handle_action(1, action, room_reducer.clone())
             .await;
         assert!(action_result.is_ok());
 
-        // Verify state
         {
             let reducer = room_reducer.lock().await;
             let state = reducer.get_state();
@@ -379,7 +348,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add two clients
         let client1 = create_client(1);
         let responses1 = Arc::new(StdMutex::new(Vec::new()));
         let sink1 = MockSink {
@@ -395,7 +363,6 @@ mod tests {
         broadcaster.add_client_connection(client1, sink1).await;
         broadcaster.add_client_connection(client2, sink2).await;
 
-        // Client 1 creates room
         let create_result = broadcaster.handle_create(1).await;
         assert!(create_result.is_ok());
         let room_id = match create_result.unwrap().response {
@@ -403,23 +370,18 @@ mod tests {
             _ => panic!("Expected RoomCreated response"),
         };
 
-        // Client 2 joins room
         let join_result = broadcaster.handle_join(2, room_id).await;
         assert!(join_result.is_ok());
 
-        // Clear response buffers
         responses1.lock().unwrap().clear();
         responses2.lock().unwrap().clear();
 
-        // Client 1 leaves room
         let leave_result = broadcaster.handle_leave(1).await;
 
-        // Verify success
         assert!(leave_result.is_ok());
         let room_response = leave_result.unwrap();
         assert!(matches!(room_response.response, Response::RoomLeft(_)));
 
-        // Verify client 1 left room but client 2 remains
         {
             let rooms = broadcaster.get_rooms();
             let rooms = rooms.lock().await;
@@ -440,7 +402,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add client
         let client = create_client(1);
         let responses = Arc::new(StdMutex::new(Vec::new()));
         let sink = MockSink {
@@ -449,11 +410,9 @@ mod tests {
 
         broadcaster.add_client_connection(client, sink).await;
 
-        // Process create room event
         let create_event = create_message(1, JointMessageMethod::Create);
         let result = broadcaster.process_event(1, create_event).await;
 
-        // Verify success
         assert!(result.is_ok());
         let room_id = match result.unwrap().response {
             Response::RoomCreated(id) => id,
@@ -467,7 +426,6 @@ mod tests {
 
         assert!(result.is_ok());
 
-        // Verify state changed
         {
             let rooms = broadcaster.get_rooms();
             let rooms = rooms.lock().await;
@@ -476,14 +434,11 @@ mod tests {
             assert_eq!(state.counter, 10);
         }
 
-        // Process leave event
         let leave_event = create_message(1, JointMessageMethod::Leave);
         let result = broadcaster.process_event(1, leave_event).await;
 
-        // Verify success
         assert!(result.is_ok());
 
-        // Verify client left room
         {
             let clients = broadcaster.get_clients();
             let clients = clients.lock().await;
@@ -496,7 +451,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add client
         let client = create_client(1);
         let responses = Arc::new(StdMutex::new(Vec::new()));
         let sink = MockSink {
@@ -505,24 +459,19 @@ mod tests {
 
         broadcaster.add_client_connection(client, sink).await;
 
-        // Create room
         let create_result = broadcaster.handle_create(1).await;
         assert!(create_result.is_ok());
 
-        // Dispatch action using extern_dispatch
         let action_json = r#"{"Increment":null}"#;
         let result = broadcaster.extern_dispatch(1, action_json).await;
 
-        // Verify success
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.state.counter, 1);
 
-        // Another action
         let action_json = r#"{"Add":5}"#;
         let result = broadcaster.extern_dispatch(1, action_json).await;
 
-        // Verify success
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.state.counter, 6);
@@ -533,7 +482,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add two clients
         let client1 = create_client(1);
         let responses1 = Arc::new(StdMutex::new(Vec::new()));
         let sink1 = MockSink {
@@ -549,7 +497,6 @@ mod tests {
         broadcaster.add_client_connection(client1, sink1).await;
         broadcaster.add_client_connection(client2, sink2).await;
 
-        // Client 1 creates room
         let create_result = broadcaster.handle_create(1).await;
         assert!(create_result.is_ok());
         let room_id = match create_result.unwrap().response {
@@ -557,7 +504,6 @@ mod tests {
             _ => panic!("Expected RoomCreated response"),
         };
 
-        // Modify room state
         {
             let rooms = broadcaster.get_rooms();
             let rooms = rooms.lock().await;
@@ -567,16 +513,12 @@ mod tests {
             reducer.state.messages.push("Initial".to_string());
         }
 
-        // Clear responses
         responses2.lock().unwrap().clear();
 
-        // Directly insert client 2 to room
         let result = broadcaster.insert_client_to_room(2, room_id).await;
 
-        // Verify success
         assert!(result.is_ok());
 
-        // Verify client 2 is in room
         {
             let clients = broadcaster.get_clients();
             let clients = clients.lock().await;
@@ -588,7 +530,6 @@ mod tests {
             assert!(room.client_ids.contains(&2));
         }
 
-        // Verify client 2 received state update
         assert!(get_response_count(&responses2) > 0);
         if let Some(Response::StateSent(state_json)) = get_last_response(&responses2) {
             let state: TestState = serde_json::from_str(&state_json).unwrap();
@@ -604,7 +545,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add client
         let client = create_client(1);
         let responses = Arc::new(StdMutex::new(Vec::new()));
         let sink = MockSink {
@@ -613,7 +553,6 @@ mod tests {
 
         broadcaster.add_client_connection(client, sink).await;
 
-        // Create a stream with multiple messages
         let messages = vec![
             create_message(1, JointMessageMethod::Create),
             create_action_message(1, TestAction::Add(7)),
@@ -623,17 +562,14 @@ mod tests {
 
         let mut stream = MockStream { messages, index: 0 };
 
-        // Handle the stream
         let handle = tokio::spawn(async move {
             broadcaster.handle_rx(1, &mut stream).await;
         });
 
-        // Wait for completion (stream runs out of messages)
         let _ = tokio::time::timeout(std::time::Duration::from_millis(500), handle)
             .await
             .expect("handle_rx did not complete");
 
-        // Verify final state of responses
         assert!(get_response_count(&responses) > 0);
     }
 
@@ -642,7 +578,6 @@ mod tests {
         let reducer = TestReducer::default();
         let broadcaster = Broadcaster::<MockSink, TestReducer>::new(reducer);
 
-        // Add client
         let client = create_client(1);
         let responses = Arc::new(StdMutex::new(Vec::new()));
         let sink = MockSink {
@@ -651,30 +586,24 @@ mod tests {
 
         broadcaster.add_client_connection(client, sink).await;
 
-        // Try to join non-existent room
         let join_event = create_message(1, JointMessageMethod::Join(999));
         let result = broadcaster.process_event(1, join_event).await;
 
-        // Verify error
         assert!(result.is_err());
         match result.err().unwrap().response {
             Response::NotFound(_) => {}
             _ => panic!("Expected NotFound response"),
         }
 
-        // Try invalid action format
         let invalid_action = r#"{"Invalid":null}"#;
         let result = broadcaster.extern_dispatch(1, invalid_action).await;
 
-        // Verify error
         assert!(result.is_err());
 
-        // Try to perform action without being in room
         let action = TestAction::Add(5);
         let action_event = create_action_message(1, action);
         let result = broadcaster.process_event(1, action_event).await;
 
-        // Verify error
         assert!(result.is_err());
         match result.err().unwrap().response {
             Response::NotFound(_) => {}

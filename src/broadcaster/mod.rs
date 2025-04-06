@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 
 pub struct Broadcaster<S, R>
 where
-    S: SinkAdapter + Unpin,
+    S: SinkAdapter + Unpin + Clone,
     R: Dispatchable + Send,
 {
     clients: Arc<Mutex<HashMap<u64, Client>>>,
@@ -25,7 +25,7 @@ where
 // Class that implements main publish-subscribe logic, by handling clients and rooms
 impl<S, R> Broadcaster<S, R>
 where
-    S: SinkAdapter + Unpin,
+    S: SinkAdapter + Unpin + Clone,
     R: Dispatchable + Send,
 {
     pub fn new(default_reducer: R) -> Self {
@@ -213,25 +213,23 @@ where
                     ClientResponse::server_error(client_id, "Invalid action".to_string())
                 })?;
 
-                let clients = self.clients.clone();
-                let clients = clients.lock().await;
-                let client = clients.get(&client_id).ok_or_else(|| {
-                    ClientResponse::not_found(client_id, "Client not found".to_string())
-                })?;
+                let reducer_arc = {
+                    let clients = self.clients.lock().await;
+                    let client = clients.get(&client_id).ok_or_else(|| {
+                        ClientResponse::not_found(client_id, "Client not found".to_string())
+                    })?;
+                    let room_id = client.room_id.ok_or_else(|| {
+                        ClientResponse::not_found(client_id, "Client not in room".to_string())
+                    })?;
 
-                let room_id = client.room_id.ok_or_else(|| {
-                    ClientResponse::not_found(client_id, "Client not in room".to_string())
-                })?;
-                drop(clients);
+                    let rooms = self.rooms.lock().await;
+                    let room = rooms.get(&room_id).ok_or_else(|| {
+                        ClientResponse::not_found(client_id, "Room not found".to_string())
+                    })?;
+                    room.reducer.clone()
+                };
 
-                let rooms = self.rooms.clone();
-                let rooms = rooms.lock().await;
-                let room = rooms.get(&room_id).ok_or_else(|| {
-                    ClientResponse::not_found(client_id, "Room not found".to_string())
-                })?;
-
-                self.handle_action(client_id, action, room.reducer.clone())
-                    .await
+                self.handle_action(client_id, action, reducer_arc).await
             }
             JointMessageMethod::Leave => self.handle_leave(client_id).await,
         }
@@ -239,29 +237,58 @@ where
 
     // broadcasts response state to all clients in room
     pub(crate) async fn react_on_message(&self, room_id: u64, response: Response) {
-        let rooms = self.rooms.lock().await;
-        let room = rooms.get(&room_id).ok_or("Room not found".to_string());
+        let client_connections_to_send: Vec<(u64, S)> = {
+            let clients = self.clients.lock().await;
+            let rooms = self.rooms.lock().await;
+            let connections = self.connections.lock().await;
 
-        if let Ok(room) = room {
-            // broadcast response state to all clients in room
-            let mut clients = self.clients.lock().await;
-            let mut connections = self.connections.lock().await;
+            let room = match rooms.get(&room_id) {
+                Some(r) => r,
+                None => {
+                    eprintln!("Warning: Trying to react in non-existent room {}", room_id);
+                    return;
+                }
+            };
+
+            let mut connections_to_send = Vec::new();
             for client_id in room.client_ids.iter() {
-                if let Some(client) = clients.get_mut(client_id) {
-                    let _ = connections
-                        .get_mut(&client.id)
-                        .unwrap()
-                        .send(response.clone())
-                        .await;
+                if clients.contains_key(client_id) {
+                    if let Some(connection) = connections.get(client_id) {
+                        connections_to_send.push((*client_id, connection.clone()));
+                    } else {
+                        eprintln!(
+                            "Warning: Connection not found for client {} in room {}",
+                            client_id, room_id
+                        );
+                    }
+                } else {
+                    eprintln!(
+                        "Warning: Client {} not found for room {}",
+                        client_id, room_id
+                    );
                 }
             }
+            connections_to_send
+        };
+
+        for (_, mut connection) in client_connections_to_send {
+            if let Err(_) = connection.send(response.clone()).await {}
         }
     }
 
     pub(crate) async fn react_with_error(&self, client_id: u64, error: Response) {
-        let mut connections = self.connections.lock().await;
-        if let Some(sender) = connections.get_mut(&client_id) {
-            let _ = sender.send(error).await;
+        let connection_to_send: Option<S> = {
+            let connections = self.connections.lock().await;
+            connections.get(&client_id).cloned()
+        };
+
+        if let Some(mut sender) = connection_to_send {
+            if let Err(e) = sender.send(error).await {
+                eprintln!(
+                    "Error sending error message to client {}: {}. Consider removing client.",
+                    client_id, e
+                );
+            }
         }
     }
 
@@ -336,27 +363,40 @@ where
         client_id: u64,
         room_id: u64,
     ) -> Result<(), String> {
-        let mut clients = self.clients.lock().await;
-        let client = clients
-            .get_mut(&client_id)
-            .ok_or_else(|| format!("Client not found: {}", client_id))?;
+        let (state_str, connection_to_send) = {
+            let mut clients = self.clients.lock().await;
+            let mut rooms = self.rooms.lock().await;
+            let connections = self.connections.lock().await;
 
-        let mut rooms = self.rooms.lock().await;
-        let room = rooms.get_mut(&room_id);
-        if room.is_none() {
-            return Err("Room not found".to_string());
+            let client = clients
+                .get_mut(&client_id)
+                .ok_or_else(|| format!("Client {} not found", client_id))?;
+
+            let room = rooms
+                .get_mut(&room_id)
+                .ok_or_else(|| format!("Room {} not found", room_id))?;
+
+            let connection = connections
+                .get(&client_id)
+                .ok_or_else(|| format!("Connection not found for client {}", client_id))?;
+
+            room.client_ids.insert(client_id);
+            client.room_id = Some(room_id);
+
+            let state = room.reducer.lock().await.get_state();
+            let state_str = serde_json::to_string(&state)
+                .map_err(|e| format!("Failed to serialize state: {}", e))?;
+
+            (state_str, connection.clone())
+        };
+
+        let mut connection = connection_to_send;
+        if let Err(e) = connection.send(Response::StateSent(state_str)).await {
+            eprintln!(
+                "Error sending initial state to client {}: {}. Client may not be fully joined.",
+                client_id, e
+            );
         }
-        let room = room.unwrap();
-
-        room.client_ids.insert(client_id);
-        client.room_id = Some(room_id);
-
-        let mut connections = self.connections.lock().await;
-        let conn = connections.get_mut(&client_id).unwrap(); // save
-
-        let str_state = serde_json::to_string(&room.reducer.lock().await.get_state()).unwrap();
-
-        let _ = conn.send(Response::StateSent(str_state)).await;
 
         Ok(())
     }

@@ -11,7 +11,6 @@ mod tests {
     use std::time::Duration;
     use tokio::time::sleep;
 
-    // Test action and state
     #[derive(Debug, Clone, Deserialize, Serialize)]
     enum TestAction {
         Increment,
@@ -29,7 +28,6 @@ mod tests {
 
     impl Broadcastable for TestState {}
 
-    // Test reducer implementing Dispatchable
     #[derive(Clone, Default)]
     struct TestReducer {
         state: TestState,
@@ -90,7 +88,6 @@ mod tests {
         }
     }
 
-    // Helper functions
     fn create_message(method: JointMessageMethod) -> JointMessage {
         JointMessage {
             client_token: "test-token".to_string(),
@@ -103,17 +100,14 @@ mod tests {
         create_message(JointMessageMethod::Action(action_json))
     }
 
-    // TESTS
 
     #[tokio::test]
     async fn test_basic_connection() {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
         let (tx, mut rx) = joint.connect(10);
 
-        // Simple check that channels were created
         assert!(tx.capacity() >= 10);
 
-        // Clean up
         drop(tx);
         drop(rx);
     }
@@ -123,13 +117,11 @@ mod tests {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
         let (tx, mut rx) = joint.connect(10);
 
-        // Send create room message
         let create_msg = create_message(JointMessageMethod::Create);
         tx.send(create_msg)
             .await
             .expect("Failed to send create message");
 
-        // Wait for response
         let mut room_id: Option<u64> = None;
         while let Some(response) = rx.recv().await {
             match response {
@@ -138,7 +130,6 @@ mod tests {
                     break;
                 }
                 Response::StateSent(_) => {
-                    // State sent message is expected
                 }
                 other => {
                     panic!("Unexpected response: {:?}", other);
@@ -148,7 +139,6 @@ mod tests {
 
         assert!(room_id.is_some(), "Room ID should be received");
 
-        // Clean up
         drop(tx);
         drop(rx);
     }
@@ -158,17 +148,14 @@ mod tests {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
         let (tx, mut rx) = joint.connect(10);
 
-        // STEP 1: Create a room
         let create_msg = create_message(JointMessageMethod::Create);
         tx.send(create_msg)
             .await
             .expect("Failed to send create message");
 
-        // Wait for room creation and state
         let mut room_id: Option<u64> = None;
         let mut initial_state: Option<TestState> = None;
 
-        // Process responses until we get both room ID and state
         while room_id.is_none() || initial_state.is_none() {
             if let Some(response) = rx.recv().await {
                 match response {
@@ -187,18 +174,15 @@ mod tests {
             }
         }
 
-        // Verify initial state
         let state = initial_state.unwrap();
         assert_eq!(state.counter, 0);
         assert_eq!(state.messages.len(), 0);
 
-        // STEP 2: Send an action
         let action_msg = create_action_message(TestAction::Add(5));
         tx.send(action_msg)
             .await
             .expect("Failed to send action message");
 
-        // Wait for action response
         let mut updated_state: Option<TestState> = None;
         while updated_state.is_none() {
             if let Some(response) = rx.recv().await {
@@ -216,17 +200,14 @@ mod tests {
             }
         }
 
-        // Verify updated state
         let state = updated_state.unwrap();
         assert_eq!(state.counter, 5);
 
-        // Send another action
         let action_msg = create_action_message(TestAction::Message("Hello MPSC".to_string()));
         tx.send(action_msg)
             .await
             .expect("Failed to send message action");
 
-        // Wait for action response
         let mut updated_state2: Option<TestState> = None;
         while updated_state2.is_none() {
             if let Some(response) = rx.recv().await {
@@ -244,18 +225,15 @@ mod tests {
             }
         }
 
-        // Verify updated state
         let state = updated_state2.unwrap();
         assert_eq!(state.counter, 5);
         assert_eq!(state.messages, vec!["Hello MPSC"]);
 
-        // STEP 3: Leave the room
         let leave_msg = create_message(JointMessageMethod::Leave);
         tx.send(leave_msg)
             .await
             .expect("Failed to send leave message");
 
-        // Clean up
         drop(tx);
         drop(rx);
     }
@@ -264,7 +242,6 @@ mod tests {
     async fn test_join_existing_room() {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
 
-        // First client creates a room
         let (tx1, mut rx1) = joint.connect(10);
 
         let create_msg = create_message(JointMessageMethod::Create);
@@ -272,7 +249,6 @@ mod tests {
             .await
             .expect("Failed to send create message");
 
-        // Get room ID
         let mut room_id: Option<u64> = None;
         while room_id.is_none() {
             if let Some(response) = rx1.recv().await {
@@ -282,13 +258,11 @@ mod tests {
             }
         }
 
-        // Perform an action to modify state
         let action_msg = create_action_message(TestAction::Add(10));
         tx1.send(action_msg)
             .await
             .expect("Failed to send action message");
 
-        // Wait for action to be processed
         let mut action_processed = false;
         while !action_processed {
             if let Some(response) = rx1.recv().await {
@@ -298,7 +272,6 @@ mod tests {
             }
         }
 
-        // Second client joins the room
         let (tx2, mut rx2) = joint.connect(10);
 
         let join_msg = create_message(JointMessageMethod::Join(room_id.unwrap()));
@@ -306,11 +279,9 @@ mod tests {
             .await
             .expect("Failed to send join message");
 
-        // Wait for join confirmation and state
         let mut join_confirmed = false;
         let mut received_state: Option<TestState> = None;
 
-        // Process responses until we get both confirmation and state
         while !join_confirmed || received_state.is_none() {
             if let Some(response) = rx2.recv().await {
                 match response {
@@ -329,11 +300,9 @@ mod tests {
             }
         }
 
-        // Verify state was correctly shared
         let state = received_state.unwrap();
         assert_eq!(state.counter, 10);
 
-        // Clean up
         drop(tx1);
         drop(rx1);
         drop(tx2);
@@ -344,7 +313,6 @@ mod tests {
     async fn test_multiple_clients_interaction() {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
 
-        // First client creates a room
         let (tx1, mut rx1) = joint.connect(10);
 
         let create_msg = create_message(JointMessageMethod::Create);
@@ -352,7 +320,6 @@ mod tests {
             .await
             .expect("Failed to send create message");
 
-        // Get room ID
         let mut room_id: Option<u64> = None;
         while room_id.is_none() {
             if let Some(response) = rx1.recv().await {
@@ -362,7 +329,6 @@ mod tests {
             }
         }
 
-        // Second client joins the room
         let (tx2, mut rx2) = joint.connect(10);
 
         let join_msg = create_message(JointMessageMethod::Join(room_id.unwrap()));
@@ -370,7 +336,6 @@ mod tests {
             .await
             .expect("Failed to send join message");
 
-        // Wait for join confirmation (client 2)
         let mut join_confirmed = false;
         while !join_confirmed {
             if let Some(response) = rx2.recv().await {
@@ -380,7 +345,6 @@ mod tests {
             }
         }
 
-        // Wait for join notification (client 1)
         let mut join_notified = false;
         while !join_notified {
             if let Some(response) = rx1.recv().await {
@@ -390,19 +354,16 @@ mod tests {
             }
         }
 
-        // Client 1 sends an action
         let action_msg = create_action_message(TestAction::Add(7));
         tx1.send(action_msg)
             .await
             .expect("Failed to send action message");
 
-        // Both clients should receive the action response
         let mut client1_updated = false;
         let mut client2_updated = false;
         let mut state1: Option<TestState> = None;
         let mut state2: Option<TestState> = None;
 
-        // Helper function to process action responses
         async fn process_action_response(
             rx: &mut tokio::sync::mpsc::Receiver<Response>,
             updated: &mut bool,
@@ -423,22 +384,18 @@ mod tests {
             }
         }
 
-        // Use a timeout to avoid waiting forever
         let timeout = sleep(Duration::from_millis(500));
         tokio::pin!(timeout);
 
         process_action_response(&mut rx1, &mut client1_updated, &mut state1).await;
         process_action_response(&mut rx2, &mut client2_updated, &mut state2).await;
 
-        // Both should have received updates
         assert!(client1_updated, "Client 1 should receive action update");
         assert!(client2_updated, "Client 2 should receive action update");
 
-        // States should match
         assert_eq!(state1, state2);
         assert_eq!(state1.unwrap().counter, 7);
 
-        // Clean up
         drop(tx1);
         drop(rx1);
         drop(tx2);
@@ -450,21 +407,17 @@ mod tests {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
         let (tx, mut rx) = joint.connect(10);
 
-        // Create a room
         let create_msg = create_message(JointMessageMethod::Create);
         tx.send(create_msg)
             .await
             .expect("Failed to send create message");
 
-        // Get client ID (from response)
         let mut client_id: Option<u64> = None;
 
         while client_id.is_none() {
             if let Some(response) = rx.recv().await {
                 match response {
                     Response::RoomCreated(_) => {
-                        // In a real application, we would know the client ID
-                        // For this test, assume it's 1 (assigned by the joint internally)
                         let clients = joint.joint.broadcaster.get_clients().clone();
                         client_id = Some(*clients.lock().await.iter().next().unwrap().0);
                     }
@@ -473,16 +426,13 @@ mod tests {
             }
         }
 
-        // Use direct dispatch
         let action_json = r#"{"Add":15}"#;
         let result = joint.dispatch(client_id.unwrap(), action_json).await;
 
-        // Verify success
         assert!(result.is_ok(), "Dispatch should succeed");
         let response = result.unwrap();
         assert_eq!(response.state.counter, 15);
 
-        // Clean up
         drop(tx);
         drop(rx);
     }
@@ -492,13 +442,11 @@ mod tests {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
         let (tx, mut rx) = joint.connect(10);
 
-        // Try to send an action before creating/joining a room
         let action_msg = create_action_message(TestAction::Add(5));
         tx.send(action_msg)
             .await
             .expect("Failed to send action message");
 
-        // Should receive an error
         let mut received_error = false;
         while !received_error {
             if let Some(response) = rx.recv().await {
@@ -513,13 +461,11 @@ mod tests {
             "Should receive error for action without room"
         );
 
-        // Try to leave without being in a room
         let leave_msg = create_message(JointMessageMethod::Leave);
         tx.send(leave_msg)
             .await
             .expect("Failed to send leave message");
 
-        // Should receive an error
         let mut received_error = false;
         while !received_error {
             if let Some(response) = rx.recv().await {
@@ -534,7 +480,6 @@ mod tests {
             "Should receive error for leave without room"
         );
 
-        // Clean up
         drop(tx);
         drop(rx);
     }
@@ -543,21 +488,17 @@ mod tests {
     async fn test_channel_closing() {
         let joint = MPSCJoint::<TestReducer>::new(TestReducer::default());
 
-        // Create a connection and immediately close it
         let (tx, rx) = joint.connect(10);
         drop(tx);
         drop(rx);
 
-        // Create another connection to verify the joint is still working
         let (tx2, mut rx2) = joint.connect(10);
 
-        // Create a room
         let create_msg = create_message(JointMessageMethod::Create);
         tx2.send(create_msg)
             .await
             .expect("Failed to send create message");
 
-        // Verify we can still receive messages
         let mut room_created = false;
         while !room_created {
             if let Some(response) = rx2.recv().await {
@@ -572,7 +513,6 @@ mod tests {
             "Should be able to create room after previous channel closed"
         );
 
-        // Clean up
         drop(tx2);
         drop(rx2);
     }

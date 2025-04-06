@@ -17,7 +17,6 @@ mod tests {
     use tokio::sync::Mutex;
     use tokio_tungstenite::tungstenite::Message;
 
-    // Simple test action and state for testing
     #[derive(Debug, Clone, Serialize, Deserialize)]
     enum TestAction {
         Increment,
@@ -92,41 +91,34 @@ mod tests {
         }
     }
 
-    // Helper function to create a test listener on an available port
     async fn setup_test_listener() -> TcpListener {
         TcpListener::bind("127.0.0.1:0").await.unwrap()
     }
 
     #[tokio::test]
     async fn test_websocket_joint_creation() {
-        // Create a joint
         let reducer = TestReducer::default();
         let joint = WebsocketJoint::new(reducer);
 
-        // Verify it was created correctly
         assert!(joint.tcp_listener.is_none());
     }
 
     #[tokio::test]
     async fn test_websocket_joint_bind() {
-        // Create a joint
         let reducer = TestReducer::default();
         let mut joint = WebsocketJoint::new(reducer);
 
-        // Create a listener
-        let listener = setup_test_listener().await;
-        let addr = listener.local_addr().unwrap();
+        joint
+            .bind_addr("127.0.0.1:0")
+            .await
+            .expect("Failed to bind test listener");
 
-        // Bind the joint to the listener
-        joint.bind_listener(listener).await;
-
-        // Verify it was bound correctly
         assert!(joint.tcp_listener.is_some());
+        assert!(joint.local_addr().is_some());
     }
 
     #[tokio::test]
     async fn test_websocket_joint_dispatch() {
-        // Create a joint
         let reducer = TestReducer::default();
         let joint = WebsocketJoint::new(reducer);
 
@@ -144,7 +136,6 @@ mod tests {
         );
         drop(rooms);
 
-        // Test the dispatch method
         let clients = joint.joint.broadcaster.get_clients().clone();
         let mut clients = clients.lock().await;
         clients.insert(1, Client::new(1, Some(1), String::new(), String::new()));
@@ -154,18 +145,15 @@ mod tests {
         let action = r#"{"Increment":null}"#;
         let result = joint.dispatch(client_id, action).await;
 
-        // Verify the result
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.status, "success");
         assert_eq!(response.author, client_id);
         assert_eq!(response.state.counter, 1);
 
-        // Test adding a value
         let action = r#"{"Add":5}"#;
         let result = joint.dispatch(client_id, action).await;
 
-        // Verify the result
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.state.counter, 6);
