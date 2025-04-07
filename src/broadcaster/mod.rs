@@ -1,3 +1,4 @@
+/// Broadcaster module for implementing `Broadcaster` struct that handles clients, connections, and rooms
 mod test;
 
 use crate::client::Client;
@@ -11,14 +12,25 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Broadcaster struct that manages clients, connections, and rooms
+///
+/// This struct is responsible for handling the main publish-subscribe logic,
+/// including creating and joining rooms, dispatching actions, and broadcasting messages.
+///
+/// - S is the type of the sink adapter used for sending messages to clients.
+/// - R is the type of the reducer used for managing the state of the rooms.
 pub struct Broadcaster<S, R>
 where
     S: SinkAdapter + Unpin + Clone,
     R: Dispatchable + Send,
 {
+    /// A map of client IDs to their corresponding Client objects.
     clients: Arc<Mutex<HashMap<u64, Client>>>,
+    /// A map of client IDs to their corresponding connection objects.
     connections: Arc<Mutex<HashMap<u64, S>>>,
+    /// A map of room IDs to their corresponding Room objects.
     rooms: Arc<Mutex<HashMap<u64, Room<R>>>>,
+    /// The default reducer used for managing the state of the rooms.
     default_reducer: R,
 }
 
@@ -28,6 +40,7 @@ where
     S: SinkAdapter + Unpin + Clone,
     R: Dispatchable + Send,
 {
+    /// Creates a new Broadcaster instance with the given default reducer.
     pub fn new(default_reducer: R) -> Self {
         Broadcaster {
             clients: Arc::new(Mutex::new(HashMap::<u64, Client>::new())),
@@ -37,7 +50,7 @@ where
         }
     }
 
-    // handles create room event
+    /// Handles the creation of a new room.
     pub(crate) async fn handle_create(
         &self,
         client_id: u64,
@@ -74,7 +87,7 @@ where
         Ok(RoomResponse::create_room(room_id))
     }
 
-    // handles join room event
+    /// Handles the joining of an existing room.
     pub(crate) async fn handle_join(
         &self,
         client_id: u64,
@@ -107,7 +120,7 @@ where
         }
     }
 
-    // handles dispatchable action event
+    /// handles dispatchable action event
     pub(crate) async fn handle_action(
         &self,
         client_id: u64,
@@ -138,7 +151,7 @@ where
         }
     }
 
-    // handles user leave event
+    /// handles user leave event
     pub(crate) async fn handle_leave(
         &self,
         client_id: u64,
@@ -172,7 +185,12 @@ where
         Ok(RoomResponse::leave_room(room_id, client.id))
     }
 
-    // processes abstract event
+    /// processes abstract event
+    ///
+    /// # Arguments
+    /// * `client_id` - The ID of the client sending the event.
+    /// * `event` - The event to be processed.
+    ///
     pub(crate) async fn process_event(
         &self,
         client_id: u64,
@@ -235,7 +253,12 @@ where
         }
     }
 
-    // broadcasts response state to all clients in room
+    /// broadcasts response state to all clients in room
+    ///
+    /// # Arguments
+    /// * `room_id` - The ID of the room to which the response should be sent.
+    /// * `response` - The response to be sent to the clients.
+    ///
     pub(crate) async fn react_on_message(&self, room_id: u64, response: Response) {
         let client_connections_to_send: Vec<(u64, S)> = {
             let clients = self.clients.lock().await;
@@ -276,6 +299,7 @@ where
         }
     }
 
+    /// sends error message to client
     pub(crate) async fn react_with_error(&self, client_id: u64, error: Response) {
         let connection_to_send: Option<S> = {
             let connections = self.connections.lock().await;
@@ -292,7 +316,12 @@ where
         }
     }
 
-    // asynchronously handles WebSocket rx instance
+    /// asynchronously handles WebSocket rx instance
+    ///
+    /// # Arguments
+    /// * `client_id` - The ID of the client sending the event.
+    /// * `rx` - The rx instance to be processed.
+    ///
     pub async fn handle_rx<C>(&self, client_id: u64, rx: &mut C)
     where
         C: StreamAdapter + Unpin,
@@ -313,6 +342,7 @@ where
         }
     }
 
+    /// adds a new client connection
     pub async fn add_client_connection(&self, client: Client, sender: S) {
         let id = client.id;
         let mut clients = self.clients.lock().await;
@@ -321,6 +351,7 @@ where
         connections.insert(id, sender);
     }
 
+    /// removes a client connection
     pub async fn remove_client_connection(&self, client_id: u64) {
         let mut clients = self.clients.lock().await;
         if let Some(client) = clients.get(&client_id) {
@@ -331,12 +362,13 @@ where
                 }
             }
         }
-        
+
         clients.remove(&client_id);
         let mut connections = self.connections.lock().await;
         connections.remove(&client_id);
     }
 
+    /// dispatches an action to the reducer
     pub async fn extern_dispatch(
         &self,
         client_id: u64,
@@ -367,6 +399,7 @@ where
         reducer_guard.dispatch(client_id, parsed_action).await
     }
 
+    /// inserts a client into a room and sends the initial state to the client
     pub(crate) async fn insert_client_to_room(
         &self,
         client_id: u64,
@@ -410,16 +443,19 @@ where
         Ok(())
     }
 
+    /// returns broadcaster clients
     #[allow(dead_code)] // getter is used in tests
     pub(crate) fn get_clients(&self) -> Arc<Mutex<HashMap<u64, Client>>> {
         self.clients.clone()
     }
 
+    /// returns broadcaster rooms
     #[allow(dead_code)] // getter is used in tests
     pub(crate) fn get_rooms(&self) -> Arc<Mutex<HashMap<u64, Room<R>>>> {
         self.rooms.clone()
     }
 
+    /// returns broadcaster connections
     #[allow(dead_code)] // getter is used in tests
     pub(crate) fn get_connections(&self) -> Arc<Mutex<HashMap<u64, S>>> {
         self.connections.clone()

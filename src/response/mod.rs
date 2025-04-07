@@ -1,3 +1,4 @@
+/// This module contains the response types used in the injoint library.
 mod test;
 
 use serde::de::{self, MapAccess, Visitor};
@@ -7,27 +8,69 @@ use serde_json::Value;
 use std::fmt;
 use std::fmt::Debug;
 
+/// Enum representing the status of a response, available in joint.
+///
+/// This enum is used to categorize the type of response being sent back to the client.
+///
+/// # example
+/// ```
+/// use injoint::response::ResponseStatus;
+///
+/// let status = ResponseStatus::RoomCreated;
+/// assert_eq!(format!("{:?}", status), "RoomCreated");
+/// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ResponseStatus {
+    /// Indicates that a room has been created successfully. Per-room response.
     RoomCreated,
+    /// Indicates that a client has joined a room successfully. Per-room response.
     RoomJoined,
+    /// Each new user in room receives a state object individually when they join. Per-client response.
     StateSent,
+    /// Indicates that an action has been sent to the room. Per-room response.
     Action,
+    /// Indicates that a client has left the room. Per-room response.
     RoomLeft,
+    /// Indicates a server error occurred. Per-client response.
     ServerError,
+    /// Indicates a client error occurred. Per-client response.
     ClientError,
+    /// Indicates that a room was not found. Per-client response.
     NotFound,
 }
 
+/// Enum representing the response sent back to the client, available in joint.
+///
+/// This enum is used to encapsulate the different types of responses that can be sent back to the client.
+/// Implements `Serialize` and `Deserialize` traits from `serde`.
+///
+/// # example
+/// ```
+/// use injoint::response::Response;
+/// use serde_json;
+///
+/// let response = Response::RoomCreated(123);
+/// let json = serde_json::to_string(&response).unwrap();
+/// assert_eq!(json, r#"{"status":"RoomCreated","message":123}"#);
+/// ```
+///
 #[derive(Debug, Clone)]
 pub enum Response {
+    /// Indicates that a room has been created successfully. Per-room response.
     RoomCreated(u64),
+    /// Indicates that a client has joined a room successfully. Per-room response.
     RoomJoined(u64),
+    /// Each new user in room receives a state object individually when they join. Per-client response.
     StateSent(String),
+    /// Indicates that an action has been sent to the room. Per-room response.
     Action(String), // maybe this should be a generic type that serializable?
+    /// Indicates that a client has left the room. Per-room response.
     RoomLeft(u64),
+    /// Indicates a server error occurred. Per-client response.
     ServerError(String),
+    /// Indicates a client error occurred. Per-client response.
     ClientError(String),
+    /// Indicates that a room was not found. Per-client response.
     NotFound(String),
 }
 
@@ -235,8 +278,11 @@ impl<'de> Deserialize<'de> for Response {
     }
 }
 
+/// Struct representing per-room responses.
+///
+/// This struct is used to encapsulate the room ID and the response type.
 #[derive(Debug)]
-pub struct RoomResponse {
+pub(crate) struct RoomResponse {
     pub room: u64,
     pub response: Response,
 }
@@ -283,8 +329,11 @@ impl serde::ser::Serialize for RoomResponse {
     }
 }
 
+/// Struct representing per-client responses.
+///
+/// This struct is used to encapsulate the client ID and the response type.
 #[derive(Debug)]
-pub struct ClientResponse {
+pub(crate) struct ClientResponse {
     pub client: u64,
     pub response: Response,
 }

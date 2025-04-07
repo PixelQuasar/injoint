@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{get_id, WebStateTrait};
+    use crate::utils::get_id;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -9,8 +9,6 @@ mod tests {
         value: i32,
         name: String,
     }
-
-    impl WebStateTrait for TestState {}
 
     #[test]
     fn test_get_id() {

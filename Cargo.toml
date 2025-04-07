@@ -1,6 +1,6 @@
 [package]
 name = "injoint"
-version = "0.0.6"
+version = "0.1.0"
 edition = "2021"
 description = "Injoint is a library for creating publish-subscribe APIs in minimalistic declarative way"
 repository = "https://github.com/PixelQuasar/injoint"
@@ -19,7 +19,7 @@ futures-util = "0.3.31"
 rand = "0.9.0"
 async-trait = "0.1.88"
 axum = { version = "0.8.1", features = ["ws"] }
-injoint-macros = "0.0.6"
+injoint-macros = "0.1.0"
 url = "2.5.4"
 criterion = "0.5.1"
 

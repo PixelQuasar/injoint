@@ -6,16 +6,11 @@ mod tests {
     use crate::joint::ws::WebsocketJoint;
     use crate::room::{Room, RoomStatus};
     use crate::utils::types::{Broadcastable, Receivable};
-    use futures_util::{SinkExt, StreamExt};
-    use serde::de::Unexpected::Str;
     use serde::{Deserialize, Serialize};
     use std::collections::HashSet;
+    use std::future::Future;
     use std::sync::Arc;
-    use std::{future::Future, net::SocketAddr};
-    use tokio::io::join;
-    use tokio::net::TcpListener;
     use tokio::sync::Mutex;
-    use tokio_tungstenite::tungstenite::Message;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     enum TestAction {
@@ -89,10 +84,6 @@ mod tests {
         fn get_state(&self) -> Self::State {
             self.state.clone()
         }
-    }
-
-    async fn setup_test_listener() -> TcpListener {
-        TcpListener::bind("127.0.0.1:0").await.unwrap()
     }
 
     #[tokio::test]

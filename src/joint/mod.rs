@@ -11,12 +11,18 @@ mod test;
 #[cfg(not(tarpaulin))]
 pub mod ws;
 
-// Root abstract struct that provides all publish-subscribe functionality
+/// Root abstract struct that provides all publish-subscribe functionality
+///
+/// This struct is generic over the reducer type `R` and the sink type `Sink`.
+///
+/// `R` must implement the `Dispatchable` trait, which defines how actions are dispatched to the reducer.
+/// `Sink` must implement the `SinkAdapter` trait, which defines how messages are sent to clients.
 pub struct AbstractJoint<R, Sink>
 where
     Sink: SinkAdapter + Unpin + Clone,
     R: Dispatchable + Send + Clone,
 {
+    /// Broadcaster instance that handles the communication between clients and the reducer.
     pub(crate) broadcaster: Broadcaster<Sink, R>,
 }
 
@@ -25,13 +31,16 @@ where
     Sink: SinkAdapter + Unpin + Clone,
     R: Dispatchable + Send + Clone,
 {
+    /// Creates a new instance of `AbstractJoint`.
     pub fn new(default_reducer: R) -> Self {
         AbstractJoint {
             broadcaster: Broadcaster::new(default_reducer),
         }
     }
 
-    // Dispatches developer-defined action (performed by user) to joint reducer
+    /// Dispatches developer-defined action (performed by user) to joint reducer
+    ///
+    /// This method takes a `client_id` and an `action` string as parameters.
     pub async fn dispatch(
         &self,
         client_id: u64,
@@ -40,7 +49,9 @@ where
         self.broadcaster.extern_dispatch(client_id, action).await
     }
 
-    // handles new abstract split sink
+    /// handles new abstract split sink
+    ///
+    /// This method takes a mutable reference to a `StreamAdapter` and a `Sink` as parameters.
     pub async fn handle_stream<S>(&self, receiver: &mut S, sender: Sink)
     where
         S: StreamAdapter + Unpin + Send + Sync,
@@ -61,6 +72,7 @@ where
             .await;
     }
 
+    /// Returns a reference to the `Broadcaster` instance.
     #[allow(dead_code)] // used in tests
     pub(crate) fn get_broadcaster(&self) -> &Broadcaster<Sink, R> {
         &self.broadcaster

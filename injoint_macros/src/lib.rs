@@ -1,3 +1,4 @@
+/// This file contains the implementation of the injoint codegen.
 extern crate proc_macro;
 use crate::utils::snake_to_camel;
 use proc_macro::TokenStream;
@@ -10,6 +11,7 @@ use syn::{
 
 mod utils;
 
+/// This macro derives the `Broadcastable` trait for a struct.
 #[proc_macro_derive(Broadcastable)]
 pub fn derive_broadcastable(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -23,6 +25,7 @@ pub fn derive_broadcastable(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+/// This macro is used to annotate a struct as a reducer.
 #[proc_macro_attribute]
 pub fn reducer_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input: ItemStruct = parse_macro_input!(item);
@@ -46,6 +49,14 @@ pub fn reducer_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+/// This macro is used to annotate a struct as a reducer and generate the necessary
+/// code for the reducer actions.
+///
+/// It generates an enum for the actions, implements the `Dispatchable` trait,
+/// and provides methods for dispatching actions.
+///
+/// The macro takes the state struct as an argument and generates the
+/// necessary code for the reducer actions.
 #[proc_macro_attribute]
 pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input: ItemImpl = parse_macro_input!(item);
