@@ -1,3 +1,4 @@
+/// Provides joint implementations for Axum applications using WebSockets.
 mod test;
 
 use crate::connection::{SinkAdapter, StreamAdapter};
@@ -23,6 +24,10 @@ pub struct AxumWSSink {
     tx: mpsc::Sender<Result<Message, axum::Error>>,
 }
 
+/// An implementation of [`SinkAdapter`] for sending messages over an Axum WebSocket connection.
+///
+/// This struct uses an internal `tokio::sync::mpsc::channel` to allow cloning and
+/// sending messages asynchronously to the underlying WebSocket sink task.
 #[async_trait]
 impl SinkAdapter for AxumWSSink {
     async fn send(
@@ -42,6 +47,9 @@ pub struct AxumWSStream {
     stream: SplitStream<WebSocket>,
 }
 
+/// An implementation of [`StreamAdapter`] for receiving messages from an Axum WebSocket connection.
+///
+/// This struct represents the stream of messages received from an Axum WebSocket connection.
 #[async_trait]
 impl StreamAdapter for AxumWSStream {
     async fn next(&mut self) -> Result<JointMessage, Box<dyn std::error::Error + Send + Sync>> {
@@ -65,7 +73,16 @@ pub struct AxumWSJoint<R: Dispatchable + 'static> {
     tcp_listener: Option<TcpListener>,
 }
 
+/// An `injoint` joint specifically designed for integration with the Axum web framework.
+///
+/// It manages WebSocket connections and integrates with the `injoint` core broadcasting
+/// and state management logic.
+///
+/// `R` represents the application-specific `Dispatchable` state/reducer.
 impl<R: Dispatchable + 'static> AxumWSJoint<R> {
+    /// Creates a new `AxumJoint`.
+    ///
+    /// Requires a default instance of the application's `Dispatchable` reducer.
     pub fn new(default_reducer: R) -> Self {
         AxumWSJoint {
             joint: Arc::new(AbstractJoint::new(default_reducer)),
@@ -78,6 +95,11 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         self.tcp_listener = Some(tcp_listener);
     }
 
+    /// Axum WebSocket handler function.
+    ///
+    /// This function should be used with `axum::routing::get` to handle WebSocket upgrade requests.
+    /// It manages the WebSocket lifecycle, splitting it into a sink and stream, and passes
+    /// them to the underlying `AbstractJoint`.
     pub async fn ws_handler(
         ws: WebSocketUpgrade,
         joint: Arc<AbstractJoint<R, AxumWSSink>>,
@@ -118,11 +140,24 @@ impl<R: Dispatchable + 'static> AxumWSJoint<R> {
         })
     }
 
+    /// Attaches the WebSocket handler (`ws_handler`) to an Axum router at the specified path.
+    ///
+    /// This is a convenience method for setting up the WebSocket route.
     pub fn attach_router(&self, path: &str, router: Router) -> Router {
         let joint = self.joint.clone();
         router.route(path, get(move |ws| AxumWSJoint::ws_handler(ws, joint)))
     }
 
+    /// Allows dispatching an action to the joint\'s reducer from outside the WebSocket context.
+    ///
+    /// This can be useful for triggering state changes from other parts of the application
+    /// (e.g., HTTP request handlers, background jobs).
+    ///
+    /// # Arguments
+    /// * `client_id` - The ID of the client on whose behalf the action is dispatched.
+    ///                 Note: The client must exist and be in a room for the dispatch to succeed.
+    /// * `action` - A string slice representing the action to be dispatched (must be JSON serializable
+    ///              according to the `Dispatchable::Action` type).
     pub async fn dispatch(
         &self,
         client_id: u64,
