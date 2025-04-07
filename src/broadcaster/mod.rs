@@ -323,6 +323,15 @@ where
 
     pub async fn remove_client_connection(&self, client_id: u64) {
         let mut clients = self.clients.lock().await;
+        if let Some(client) = clients.get(&client_id) {
+            if let Some(room_id) = client.room_id {
+                let mut rooms = self.rooms.lock().await;
+                if let Some(room) = rooms.get_mut(&room_id) {
+                    room.client_ids.remove(&client_id);
+                }
+            }
+        }
+        
         clients.remove(&client_id);
         let mut connections = self.connections.lock().await;
         connections.remove(&client_id);
