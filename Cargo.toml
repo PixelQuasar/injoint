@@ -1,6 +1,6 @@
 [package]
 name = "injoint"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Injoint is a library for creating publish-subscribe APIs in minimalistic declarative way"
 repository = "https://github.com/PixelQuasar/injoint"
