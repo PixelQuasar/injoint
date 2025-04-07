@@ -76,7 +76,7 @@ impl Dispatchable for BenchReducer {
 
 fn create_message(method: JointMessageMethod) -> JointMessage {
     JointMessage {
-        client_token: "benchmark-token".to_string(),
+        client_token: String::new(),
         message: method,
     }
 }
@@ -87,34 +87,28 @@ fn create_action_message(action: BenchAction) -> JointMessage {
 }
 
 async fn run_websocket_benchmark(num_clients: usize, actions_per_client: usize) -> f64 {
-    // Using a barrier to ensure server is ready before clients connect
-    let server_ready = Arc::new(Barrier::new(2)); // Server + this task
+    let server_ready = Arc::new(Barrier::new(2));
     let server_ready_clone = server_ready.clone();
-    let local_addr_arc = Arc::new(Mutex::new(None::<SocketAddr>)); // To share the actual address
+    let local_addr_arc = Arc::new(Mutex::new(None::<SocketAddr>));
     let local_addr_arc_clone = local_addr_arc.clone();
 
-    // Spawn the server
     let server_handle = tokio::spawn(async move {
         let mut joint = WebsocketJoint::<BenchReducer>::new(BenchReducer::default());
         joint
             .bind_addr("127.0.0.1:0")
             .await
-            .expect("Failed to bind to port 0"); // Bind to port 0
+            .expect("Failed to bind to port 0");
 
-        // Store the actual address for clients
         let actual_addr = joint
             .local_addr()
             .expect("Failed to get local address after bind");
         *local_addr_arc_clone.lock().await = Some(actual_addr);
 
-        // Signal that the server is ready
         server_ready_clone.wait().await;
 
-        // Listen for connections (will run until the benchmark is done)
         joint.listen().await;
     });
 
-    // Wait for server to be ready and get the address
     server_ready.wait().await;
     let actual_addr = {
         let mut addr_opt = local_addr_arc.lock().await;
@@ -122,17 +116,14 @@ async fn run_websocket_benchmark(num_clients: usize, actions_per_client: usize) 
             if addr_opt.is_some() {
                 break addr_opt.take().unwrap();
             }
-            // Release lock and sleep briefly if address not set yet
             drop(addr_opt);
             tokio::time::sleep(Duration::from_millis(10)).await;
             addr_opt = local_addr_arc.lock().await;
         }
     };
 
-    // Shared room_id to be discovered by the first client
     let room_id = Arc::new(Mutex::new(None::<u64>));
 
-    // Connect clients using the actual address
     let url = format!("ws://{}", actual_addr);
     let url = Url::parse(&url).unwrap();
 
@@ -157,7 +148,6 @@ async fn run_websocket_benchmark(num_clients: usize, actions_per_client: usize) 
             if let Some(msg) = read.next().await {
                 let msg = msg.unwrap();
                 if let Message::Text(text) = msg {
-                    //println!("Received message: {}", text);
                     let response: Response = serde_json::from_str(&text).unwrap();
                     if let Response::RoomCreated(id) = response {
                         let mut room_id_guard = room_id_clone.lock().await;
@@ -186,7 +176,7 @@ async fn run_websocket_benchmark(num_clients: usize, actions_per_client: usize) 
                     match response {
                         Response::Action(_) => {
                             actions_completed += 1;
-                            break; // Break after receiving this action's response
+                            break; 
                         }
                         Response::StateSent(_) => {
                             continue;
@@ -239,7 +229,6 @@ async fn run_websocket_benchmark(num_clients: usize, actions_per_client: usize) 
                     if let Message::Text(text) = msg {
                         let response: Response = serde_json::from_str(&text).unwrap();
                         match response {
-                            Response::RoomJoined(_) => joined = true,
                             Response::StateSent(_) => joined = true,
                             _ => {}
                         }
@@ -303,17 +292,20 @@ async fn run_websocket_benchmark(num_clients: usize, actions_per_client: usize) 
 fn websocket_joint_benchmark(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
+    // n clients, m actions each
     let configs = vec![
-        (1, 100),    // 1 client, 100 actions
-        (5, 100),    // 5 clients, 100 actions each
-        (10, 100),   // 10 clients, 100 actions each
-        (1, 1000),   // 1 client, 1000 actions each
-        (5, 1000),   // 5 clients, 1000 actions each
-        (10, 10000), // 10 clients, 1000 actions each
-        (20, 50),    // 20 clients, 50 actions each
+        (1, 1000),
+        (10, 1000),
+        (20, 1000),
+        (100, 5),
+        (50, 1000),
+        (100, 1000),
+        (10, 100000),
     ];
 
     let mut group = c.benchmark_group("WebSocket Joint Performance");
+    group.measurement_time(Duration::from_secs(50));
+    group.sample_size(50);
 
     for (clients, actions) in configs {
         let id = format!("clients={}_actions={}", clients, actions);

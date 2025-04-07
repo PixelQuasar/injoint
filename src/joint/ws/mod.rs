@@ -113,7 +113,7 @@ impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
                             break;
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         let _ = websocket_sink.close().await;
                         eprintln!(
                             "[Sink Task {:?}] Sink closed due to channel error, breaking loop.",
@@ -123,7 +123,6 @@ impl<R: Dispatchable + Send + 'static> WebsocketJoint<R> {
                     }
                 }
             }
-            let close_result = websocket_sink.close().await;
         });
 
         let mut stream_adapter = WSStream {
