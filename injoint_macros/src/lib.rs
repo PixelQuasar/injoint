@@ -3,7 +3,6 @@ use crate::utils::snake_to_camel;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
 use syn::{
     parse_macro_input, DeriveInput, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, ItemStruct,
     PatType, Signature, Token, Type,
@@ -221,10 +220,6 @@ pub fn reducer_actions(attr: TokenStream, item: TokenStream) -> TokenStream {
             ) -> Result<injoint::dispatcher::ActionResponse<#state_struct>, String> {
                 let action: #enum_name = serde_json::from_str(action).unwrap();
                 self.dispatch(client_id, action).await
-            }
-
-            fn get_state(&self) -> #state_struct {
-                self.state.clone()
             }
         }
     };
