@@ -110,4 +110,4 @@ async fn main() {
 }
  ```
 
-for additional info, lookup https://docs.rs/injoint/latest/injoint/
+### Full documentation: https://docs.rs/injoint/latest/injoint/
